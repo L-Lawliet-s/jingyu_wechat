@@ -28,6 +28,7 @@ function safeDirectory(root,scope){
  * only chat records enter retrieval/summary. No reasoning or tool output is indexed. */
 export class HistoryStore{
   constructor(root,scope=''){
+    this.accountScope=scope;
     this.file=path.join(safeDirectory(root,scope),'history.sqlite');
     for(const file of [this.file,this.file+'-wal',this.file+'-shm'])if(fs.existsSync(file)&&fs.lstatSync(file).isSymbolicLink())throw Error('HISTORY_PATH_INVALID');
     this.db=new DatabaseSync(this.file);this.db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;

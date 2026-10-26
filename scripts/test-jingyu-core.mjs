@@ -16,7 +16,7 @@ test('memory scopes enforce owner-to-contact sharing and prevent contact-to-cont
  assert.deepEqual(new Set(texts(a,'fixture_a')),new Set(['蓝鲸学习计划','A的私有考试']));
  assert.deepEqual(new Set(texts(b,'fixture_b')),new Set(['蓝鲸学习计划','B的私有考试']));
  assert.deepEqual(texts(a,''),['蓝鲸学习计划']);assert.deepEqual(texts(a,'fixture_b'),['蓝鲸学习计划']);
- assert.deepEqual(new Set(texts(owner,'fixture_owner')),new Set(['蓝鲸学习计划','主人私有内容']));
+ assert.deepEqual(new Set(texts(owner,'fixture_owner')),new Set(['蓝鲸学习计划','主人私有内容','A的私有考试','B的私有考试']));
  assert.equal(store.searchMemory({chat:'wechat:group:123',actor:'fixture_a'}).length,0);
  assert.throws(()=>store.saveMemory({chat:a,actor:'fixture_a',scope:'owner_shared',text:'伪造主人'}));
  assert.throws(()=>store.saveMemory({chat:owner,actor:'fixture_a',scope:'owner_private',text:'伪造来源'}));

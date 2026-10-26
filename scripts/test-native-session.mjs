@@ -243,6 +243,24 @@ test('native meme tools return only the current chat resource as authenticated R
   const cached=await runtime.request('/followup',body);assert.equal(cached.cached,true);assert.equal(cached.memeChoices[0].id,id);assert.equal(selections,1);
 });
 
+test('ordinary Jingyu chat recalls owner and contact conversations with asymmetric access and revocation',async t=>{
+ const f=await fixture(t),account='b'.repeat(64),owner='wxid_auto_owner',a='wxid_auto_a',b='wxid_auto_b';
+ const {JingyuStore,actorChat}=await import('../packages/jingyu/store.mjs');
+ fs.mkdirSync(path.join(f.dir,'state/weflow'),{recursive:true});fs.writeFileSync(path.join(f.dir,'state/weflow/active-account.json'),JSON.stringify({id:account,legacyId:account}));
+ fs.mkdirSync(path.join(f.dir,'config'),{recursive:true});fs.writeFileSync(path.join(f.dir,'config/wechatagent.json'),JSON.stringify({wechat:{whitelist:{private:[owner,a,b].map(actor=>actorChat(actor).split(':')[2]),groups:[]}}}));
+ const store=new JingyuStore(f.dir,account);store.saveSettings({ownerWxid:owner,sharedMemoryEnabled:true,allowGroupShared:false});store.close();
+ const archive=new HistoryStore(f.dir,account);let sequence=0;
+ const row=(actor,person,text,outgoing=false)=>{const chat=actorChat(actor);archive.append(chat,{id:'auto-'+(++sequence),platform:'wechat',kind:'private',conversation_id:chat.split(':')[2],sender_id:chat.split(':')[2],conversation_name:person,sender_name:person,text,timestamp:Date.now()/1000+sequence,outgoing});};
+ row(owner,'主人账号','我在写论文');row(a,'小张','我今天吃了米饭');row(b,'小李','我吃了面条');row(owner,'AI','小李面条和小张米饭是联系人的情况',true);archive.close();
+ let evidence,query='主人最近忙什么',person='主人';const options={beforeAssistant:async agent=>{evidence=JSON.parse((await agent.registeredTools.get('jingyu_memory_read').execute({query,person})).content);}};
+ const r=await f.start(options);
+ await r.request('/followup',{...info,conversationKey:actorChat(a),pluginSender:a,message:'主人最近忙什么'});assert(r.calls.model.at(-1).includes('我在写论文'));assert(!r.calls.model.at(-1).includes('面条'));assert(evidence.memories.some(item=>item.text==='我在写论文'));
+ query='吃了什么';person='小张';await r.request('/followup',{...info,conversationKey:actorChat(owner),pluginSender:owner,message:'小张吃了什么'});assert(r.calls.model.at(-1).includes('我今天吃了米饭'));assert(evidence.memories.some(item=>item.person==='小张'));
+ query='米饭';person='小张';const before=await r.request('/followup',{...info,conversationKey:actorChat(b),pluginSender:b,message:'聊聊今天'});assert(!r.calls.model.at(-1).includes('米饭'));assert.deepEqual(evidence.memories,[]);
+ const editor=new JingyuStore(f.dir,account),thesis=editor.listConversationMemories().find(item=>item.text==='我在写论文');assert.equal(editor.listMemories().length,0);editor.restrictConversationMemory(thesis.id);editor.close();
+ query='近况';person='主人';const after=await r.request('/followup',{...info,conversationKey:actorChat(b),pluginSender:b,message:'再聊点别的'});assert.notEqual(after.sessionId,before.sessionId);assert(!r.calls.model.at(-1).includes('我在写论文'));assert.deepEqual(evidence.memories,[]);
+});
+
 test('Jingyu native chat filters shared context, exposes scoped tools and rotates after shared revocation',async t=>{
  const f=await fixture(t),account='b'.repeat(64),owner='wxid_fixture_owner',contact='wxid_fixture_contact';
  const {JingyuStore,actorChat}=await import('../packages/jingyu/store.mjs');
@@ -294,7 +312,7 @@ async function fixture(t) {
     for (;;) {
       const portServer=http.createServer();
       try { await new Promise((resolve,reject)=>{portServer.once('error',reject);portServer.listen(20000+crypto.randomInt(40000),'127.0.0.1',resolve);}); }
-      catch(error) { if(error.code==='EADDRINUSE')continue; throw error; }
+      catch(error) { if(['EADDRINUSE','EACCES'].includes(error.code))continue; throw error; }
       port=portServer.address().port;await new Promise(r=>portServer.close(r));break;
     }
     const listeners=new Map(), agents=new Map(), calls={create:[],resume:[],model:[],inputs:[],requests:[],titles:[],costLogs:[]};let disposer,turn=0;

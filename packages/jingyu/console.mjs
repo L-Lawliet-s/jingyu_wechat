@@ -9,7 +9,7 @@ export async function jingyuConsole(root,route,method,body={},options={}){
  const {store,billing,audio}=jingyuFor(root,options);
  const configFile=path.join(root,'config/wechatagent.json');const config=fs.existsSync(configFile)?JSON.parse(fs.readFileSync(configFile,'utf8').replace(/^\uFEFF/,'')):{};
  const chats=(config.wechat?.whitelist?.private??[]).map(id=>'wechat:private:'+id),reminders=new StudyReminders(store);
- if(route==='/api/jingyu'&&method==='GET')return {settings:store.settings(),keyConfigured:billing.configured(),memories:store.listMemories(),reminders:reminders.list(),chats,epoch:store.epoch(),balance:await billing.balance(),audio:{settings:audio.settings(),status:audio.status(),runtime:pythonStatus(root,'audio')},capabilities:{memory:true,billing:true,audio:'manual-test',pat:false,voiceMessage:false,voiceCall:false,videoCall:false}};
+ if(route==='/api/jingyu'&&method==='GET')return {settings:store.settings(),keyConfigured:billing.configured(),memories:store.listMemories(),conversationMemories:store.listConversationMemories(),conversationMemoryCount:store.conversationMemoryCount(),reminders:reminders.list(),chats,epoch:store.epoch(),balance:await billing.balance(),audio:{settings:audio.settings(),status:audio.status(),runtime:pythonStatus(root,'audio')},capabilities:{memory:true,conversationMemory:true,billing:true,audio:'manual-test',pat:false,voiceMessage:false,voiceCall:false,videoCall:false}};
  if(route==='/api/jingyu/audio/settings'&&method==='POST')return {ok:true,settings:audio.save(body)};
  if(route==='/api/jingyu/audio/status'&&method==='GET')return audio.status();
  if(route==='/api/jingyu/audio/probe'&&method==='POST'){if(Object.hasOwn(body,'python'))throw fault('运行环境由软件自动管理，无需提交程序路径。');return audio.probe();}
@@ -35,5 +35,7 @@ export async function jingyuConsole(root,route,method,body={},options={}){
  if(route==='/api/jingyu/memories/delete'&&method==='POST'){
   if(typeof body.id!=='string'||body.id.length>60)throw fault('请选择有效记忆。');store.removeMemory(body.id);return {ok:true};
  }
+ if(route==='/api/jingyu/conversations/private'&&method==='POST'){store.restrictConversationMemory(body.id);return {ok:true};}
+ if(route==='/api/jingyu/conversations/delete'&&method==='POST'){store.restrictConversationMemory(body.id,true);return {ok:true};}
  throw fault('鲸鱼接口不存在。',404);
 }
