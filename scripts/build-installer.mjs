@@ -88,6 +88,7 @@ for (const name of ['social-bridge.js','role-card.js','adapters/base-adapter.js'
 add('components/qq-bridge/LICENSE');
 add('components/qq-bridge/src/safe-fetch.js');
 addTree('packages/extension-runtime', (name, dir) => dir || /\.(mjs|md)$/.test(name));
+addTree('packages/jingyu', (name, dir) => dir || /\.(mjs|md|py|txt)$/.test(name));
 addTree('packages/plugin-api', (name, dir) => dir || /\.(mjs|md)$/.test(name));
 add('docs/PLUGIN_DEVELOPMENT.md');
 add('scripts/pack-plugin.mjs');

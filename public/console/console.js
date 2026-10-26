@@ -1,3 +1,4 @@
+import {createJingyuUI} from './jingyu.js';
 import {sessionUsage} from './session-usage.js';
 import {consoleRoute,routeKey,SETTINGS_SECTIONS} from './layout-model.mjs';
 import {createWorkspaceLayout} from './workspace-layout.js';
@@ -22,6 +23,7 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':
 const icon = name => `<svg aria-hidden="true"><use href="/icons.svg#${name}"></use></svg>`;
 const state = { token: '', config: null, draft: null, revision: '', page: 'overview', roles: [], roleDrafts: new Map(), selectedRole: '', chatKind: 'all', names: new Map(), status: null, job: null, logs: null, loading: false, reader: null };
 const roleSaves = new Map();
+const jingyuUI=createJingyuUI({api,escapeHtml,toast,chatName:key=>state.names.get(key)??key});
 const fishNotebookUI=createFishNotebookUI({api,state,escapeHtml,icon,renderPage,toast,onSave:result=>syncExtensionProject(result,'fishNotebook')});
 const memoryUI=createMemoryUI({api,state,escapeHtml,icon,renderPage,toast,notebookPage:()=>fishNotebookUI.page()});
 const assistantFeedbackUI=createAssistantFeedbackUI({api,modal,closeModal,escapeHtml,icon,toast});
@@ -35,6 +37,7 @@ const workspaceLayout=createWorkspaceLayout({api,state,escapeHtml,icon,header,fi
 const pageScroll=new Map();let currentRoute={page:'overview'};
 function selectRoute(hash){currentRoute=consoleRoute(hash);state.page=currentRoute.page;if(currentRoute.page==="memory")state.memorySection=currentRoute.section;state.settingsSection=currentRoute.page==='settings'?currentRoute.section:state.settingsSection;state.stickerSection=currentRoute.page==='stickers'?currentRoute.section:state.stickerSection;state.capabilitySection=currentRoute.page==='extensions'?currentRoute.section:state.capabilitySection;if(currentRoute.detail)state.chatDetailTab=currentRoute.detail;}
 const pages = {
+  jingyu:['鲸鱼账户与记忆','API 余额、主人绑定与单向共享记忆。'],
   settings: ['设置', '默认行为、连接与诊断按用途分类。'],
   setup: ['首次配置', '按下面的步骤连接自己的微信与模型，无需命令行。'],
   overview: ['概览', '微信助手的运行情况，一眼看清。'],
@@ -421,6 +424,7 @@ async function renderPage() {
   let markup;
   try {
     if (['chats','settings','extensions','stickers','memory'].includes(page)) $('#page-body').innerHTML = '<div class="loading-state">正在读取…</div>';
+    if (page === 'jingyu') markup = await jingyuUI.page();
     if (page === 'overview') markup = overviewPage();
     if (page === 'chats') markup = await chatsPage();
     if (page === 'roles') markup = rolesPage();
@@ -436,6 +440,7 @@ async function renderPage() {
   if (sequence !== renderSequence || state.page !== page) return;
   if(page==='setup')markup+=`<section class="card process-recovery-card">${header('端口与进程排查','遇到端口占用、其他微信实例或连接失败时，先检查正在运行的进程。','','tool')}<p class="card-description">检查不会停止程序。只有选中具体进程并再次确认后才会停止；随后可重新打开微信或 DSH，再重试配置。</p><button class="button" data-process-recovery>${icon('search')}检查端口与进程</button></section>`;
   $('#page-body').innerHTML = markup; updateDraftUI(); paintStatus(); paintReaderSetup();
+  if(page==='jingyu')jingyuUI.mount(renderPage);
   if(page==='memory'){if(state.memorySection==='notebook')fishNotebookUI.mount();else memoryUI.mount();}
   if(page==='stickers'&&state.stickerSection==='library')stickerManagerUI.mount();
   if(page==='stickers'&&state.stickerSection==='collection')api('/api/sticker-pool').then(pool=>{if(sequence!==renderSequence||!$('#sticker-pool-status'))return;const labels={selected:'DS 已完成评选',waiting_retry:'等待 DS 重试'};$('#sticker-pool-status').textContent='已入池 '+pool.count+'/50 · 待评选 '+(pool.waiting+pool.legacyWaiting)+' · '+(pool.review==='reviewing'?'DS 正在评选':labels[pool.lastReview?.status]??(pool.waiting?'等待 DS 评选':'未满池或没有新候选'));}).catch(()=>{});

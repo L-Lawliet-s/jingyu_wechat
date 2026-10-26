@@ -1,3 +1,5 @@
+import {jingyuFor,closeJingyu} from '../../../packages/jingyu/service.mjs';
+import {StudyReminders} from '../../../packages/jingyu/reminders.mjs';
 import {pluginEnabled} from '../../../packages/plugin-api/catalog.mjs';
 import {replyMessageLimit} from '../../../packages/dsh-social-bridge-plugin/reply-layout-policy.mjs';
 import {AssistantFeedback} from '../../../packages/dsh-social-bridge-plugin/assistant-feedback.mjs';
@@ -137,8 +139,9 @@ const replayTimer = setInterval(() => {
 }, 30000);
 const noticeDelivery=createAssistantNoticeDelivery({adapter,plugin,settingsFor:()=>config.search_policy_file?JSON.parse(fs.readFileSync(config.search_policy_file,'utf8').replace(/^\uFEFF/,'' )).wechat:wechat,isReady:()=>connection.ready,log});
 const assistantNoticeTimer=setInterval(()=>void noticeDelivery.tick(),5000);
+const jingyuReminderTimer=setInterval(async()=>{try{if(!connection.ready||!adapter.stats.connected||activeReaderAccount(historyRoot).id!==historyAccount.id)return;const scheduler=new StudyReminders(jingyuFor(historyRoot).store);await scheduler.tick({allowed:key=>allowedPrivate.has(key.split(':')[2]),send:(key,text,id)=>adapter.sendText({kind:'private',target:key.split(':')[2],text,deliveryId:id})});}catch{log('[Jingyu] reminder tick unavailable');}},60000);
 const proactiveTimer=setInterval(()=>void proactive.tick(),60000);void proactive.tick();
 const contextTimer = setInterval(() => void contextMaintenance.tick(), 30000); void contextMaintenance.tick();
-const stop = async () => { clearInterval(contextTimer);contextMaintenance.stop();clearInterval(proactiveTimer);noticeDelivery.stop();clearInterval(replayTimer);clearInterval(assistantNoticeTimer); connection.stop();memberConnection.stop();engine.stop();memberEngine.stop(); await adapter.stop(); historyStore.close(); process.exit(0); };
+const stop = async () => { clearInterval(jingyuReminderTimer);closeJingyu(historyRoot); clearInterval(contextTimer);contextMaintenance.stop();clearInterval(proactiveTimer);noticeDelivery.stop();clearInterval(replayTimer);clearInterval(assistantNoticeTimer); connection.stop();memberConnection.stop();engine.stop();memberEngine.stop(); await adapter.stop(); historyStore.close(); process.exit(0); };
 process.once('SIGINT', () => void stop());
 process.once('SIGTERM', () => void stop());

@@ -1,3 +1,5 @@
+import {jingyuConsole} from '../packages/jingyu/console.mjs';
+import {closeJingyu} from '../packages/jingyu/service.mjs';
 import {feedbackSnapshot,saveFeedback} from '../packages/dsh-social-bridge-plugin/assistant-feedback.mjs';
 import {createMemoryConsole} from './memory-console.mjs';
 import {fishNotebookSnapshot} from './fish-notebook-console.mjs';
@@ -373,6 +375,8 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
       if ((req.headers.origin && req.headers.origin !== origin) || req.headers['sec-fetch-site'] === 'cross-site') throw fault('不允许其他网站访问本机控制台。', 403);
       const url = new URL(req.url, origin);
       const route = url.pathname;
+      if (req.method === 'GET' && route === '/jingyu.js') return reply(200, fs.readFileSync(path.join(publicDir,'jingyu.js')), 'text/javascript; charset=utf-8');
+      if (req.method === 'GET' && route === '/jingyu-audio.js') return reply(200, fs.readFileSync(path.join(publicDir,'jingyu-audio.js')), 'text/javascript; charset=utf-8');
       if (req.method === 'GET' && !route.startsWith('/api/')) {
         if(route==='/plugin-api.md'){res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8','Content-Disposition':'attachment; filename="WeChatAgent-plugin-api-v2.md"','X-Content-Type-Options':'nosniff'});res.end(fs.readFileSync(path.join(projectRoot,'docs/PLUGIN_DEVELOPMENT.md')));return;}
         if(route==='/plugin-example.zip'){const example=path.join(projectRoot,'examples/plugins/chat-notes');inspectPackage(example);res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="chat-notes-1.0.0.zip"','X-Content-Type-Options':'nosniff'});res.end(packZip(packageFiles(example)));return;}
@@ -401,6 +405,7 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
       }
       if (req.method === 'GET' && route === '/api/info') return reply(200, { project: 'WeChatAgent Console', root, version: 1, token: csrf });
       if (req.headers['x-console-token'] !== csrf) throw fault('控制台连接已更新，请刷新页面。', 401);
+      if(route.startsWith('/api/jingyu'))return reply(200,await jingyuConsole(root,route,req.method,req.method==='GET'?{}:await readBody(req)));
       if(req.method==='GET'&&route==='/api/updates')return reply(200,await updates.check());
       if(req.method==='GET'&&route==='/api/assistant-feedback')return reply(200,feedbackSnapshot(root));
       if(req.method==='GET'&&route==='/api/memory')return reply(200,memoryView.overview());
@@ -668,6 +673,7 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
     listen();
   });
   server.on('close',()=>pluginInstaller.dispose());
+  server.once('close',()=>closeJingyu(root));
   return { server, shutdown, isBusy: () => shuttingDown || !!activeJob || protectingCredential || processRecoveryBusy, close: () => { server.closeAllConnections(); server.close(); }, start };
 }
 

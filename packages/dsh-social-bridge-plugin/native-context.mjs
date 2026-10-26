@@ -1,3 +1,5 @@
+import {jingyuFor,memoryContext,verifiedPrivateActor,closeJingyu} from '../jingyu/service.mjs';
+import {bindJingyu} from '../jingyu/dsh-tools.mjs';
 import {AssistantNotifications} from './assistant-notifications.mjs';
 import {apply as applyAssistantToolGuard} from './social-tool-restrict.mjs';
 import {AssistantTasks,ASSISTANT_CONTROLLER,liveTask,taskFault,assistantHelp,formatAssistantTask} from './assistant-tasks.mjs';
@@ -37,7 +39,7 @@ const {readHistoryPolicy:baseHistoryPolicy,sessionSize,rotationReason}=await imp
 const {bindHistory,summarizeHistory,recordSessionUsage}=await import(new URL('./history-runtime.mjs'+runtimeQuery,import.meta.url));
 const {REQUEST_WINDOW_MODE,NATIVE_PREFIX_POLICY,APPEND_WINDOW_POLICY,CACHE_LAYOUT,fixedWindowPrefix,bindWindowSystemPrefix,recentWindow,windowRecord,appendWindow,dedupeWindowReply,resetWindow,updateWindow,windowTailMessage,describeWindowRequest,displayHistoryPages,selectWakeWindow,omitWakeReplyEcho}=await import(new URL('./request-window.mjs'+runtimeQuery,import.meta.url));
 
-const readHistoryPolicy=(root,key,chatOnly=false)=>{const value=baseHistoryPolicy(root,key);return !chatOnly&&readWorkMode(root,key)==='assistant'?{...value,enabled:false}:value;};
+const readHistoryPolicy=(root,key,chatOnly=false)=>{const value=baseHistoryPolicy(root,key);try{if(jingyuFor(root).store.get('memoryResetAt',0))return {...value,enabled:false};}catch{}return !chatOnly&&readWorkMode(root,key)==='assistant'?{...value,enabled:false}:value;};
 export const name = 'dsh-social-bridge-plugin';
 export const inject = ['agents', 'sessions', 'agentPresets', 'tokenMeter', 'systemPrompt'];
 const KEY = /^(qq|wechat):(private|group):.{1,256}$/;
@@ -113,6 +115,11 @@ export function apply(ctx, config={}) {
   const root = config.projectRoot ? path.resolve(config.projectRoot) : path.resolve(import.meta.dirname,'..','..');
   const loadedAccount = activeReaderAccount(root);
   const accountReady = () => activeReaderAccount(root).id === loadedAccount.id;
+  const assertJingyuCurrent=key=>{
+    if(!loadedAccount.id||profiles[key]?.jingyuEpoch===undefined)return;
+    if(!accountReady())throw Error('JINGYU_ACCOUNT_CHANGED');
+    if(jingyuFor(root).store.epoch()!==profiles[key].jingyuEpoch)throw Error('JINGYU_MEMORY_CHANGED');
+  };
   const chatInputAllowed=(key,sender)=>readWorkMode(root,key)==='assistant'&&assistantGroupChatAllowed(JSON.parse(fs.readFileSync(path.join(root,'config/wechatagent.json'),'utf8')).wechat,key,sender??'');
   const acceptsInput=(key,sender)=>internalGroupChat?chatInputAllowed(key,sender):assistantSenderAllowed(JSON.parse(fs.readFileSync(path.join(root,'config/wechatagent.json'),'utf8')).wechat,key,sender);
   const chatCwd=internalGroupChat?path.join(root,'state/assistant-group-chat',loadedAccount.id||loadedAccount.legacyId||'legacy','workspace'):null;
@@ -137,6 +144,7 @@ export function apply(ctx, config={}) {
   const memeBindings=new Map();
   const memberMemoryBindings=new Map();
   const historyBindings=new Map();
+  const jingyuBindings=new Map();
   const windowStates=new Map();
   const fixedPrefixBindings=new Map();
   const history=scopeHistory(new HistoryStore(root,loadedAccount.id||loadedAccount.legacyId),key=>profiles[key]?.workMode??'social',internalGroupChat?{fixedMode:'assistant-chat'}:{});
@@ -302,7 +310,9 @@ export function apply(ctx, config={}) {
     const previousSid=mappings[key], previousGeneration=profiles[key]?.generation ?? 0;
     const archived=new Set(ctx.get?.('workspaceRegistry')?.archivedSessionIds ?? []);
     let generation=previousGeneration, sid=previousSid ?? accountSidFor(key,generation);
-    let rotating=archived.has(sid);
+    let jingyuEpoch=0;try{jingyuEpoch=jingyuFor(root).store.epoch();}catch{}
+    const memoryRotated=profiles[key]?.jingyuEpoch!==undefined&&profiles[key].jingyuEpoch!==jingyuEpoch;
+    let rotating=archived.has(sid)||memoryRotated;
     const nextGeneration=()=>{
       do{if(++generation>1000000)throw new Error('Session generation limit reached');sid=accountSidFor(key,generation);}while(archived.has(sid));
     };
@@ -340,6 +350,7 @@ export function apply(ctx, config={}) {
       const workspace=profiles[key]?.workspaceId&&ctx.get?.('workspaceRegistry')?.get?.(profiles[key].workspaceId);
       if(workspace)try{await workspace.attachSession(sid);}catch(error){log.warn('workspace registration unavailable; session remains usable:',error.message);}
       handles.set(sid,handle);
+      profiles[key]={...profiles[key],jingyuEpoch};
       if(rotating){
         profiles[key]={...profiles[key],generation,initializations:0,compactions:0,cache:{},
           previousSessions:[...(profiles[key]?.previousSessions ?? []),previousSid].slice(-20),...(recovery?{recovery}:{})};
@@ -430,6 +441,7 @@ export function apply(ctx, config={}) {
     if(!fileBindings.has(sid))fileBindings.set(sid,bindFileTools(agent.ctx,root,key,agent,()=>pending.get(sid)?.fileTurn,{isAllowed:()=>accountReady()&&agent.ctx[ASSISTANT_ACCESS]?.()!==false}));
     if(!dshBindings.has(sid))dshBindings.set(sid,bindDshAccess(agent.ctx,ctx,agent,root,key,()=>pending.get(sid)?.dshAccessTurn,{isAllowed:accountReady}));
     if(!memeBindings.has(sid))memeBindings.set(sid,bindMemeLibrary(agent.ctx,memeLibrary,root,key,()=>pending.get(sid)?.memeTurn,{isAllowed:accountReady}));
+    if(!jingyuBindings.has(sid))jingyuBindings.set(sid,bindJingyu(agent.ctx,root,key,()=>pending.get(sid)?.jingyuTurn,accountReady));
     if(!memberMemoryBindings.has(sid))memberMemoryBindings.set(sid,bindMemberMemory(agent.ctx,memberMemory,key,()=>pending.get(sid)?.memberMemoryTurn));
     if(!historyBindings.has(sid))historyBindings.set(sid,bindHistory(agent.ctx,history,root,key,()=>pending.get(sid)?.webReaderTurn,accountReady));
   }
@@ -532,7 +544,7 @@ export function apply(ctx, config={}) {
   }
   async function releaseHistoryAgent(sid){
     disposeFixedPrefix(sid);
-    for(const bindings of [historyBindings,webReaderBindings,modelSearchBindings,memeBindings,memberMemoryBindings,extensionBindings]){bindings.get(sid)?.();bindings.delete(sid);}
+    for(const bindings of [jingyuBindings,historyBindings,webReaderBindings,modelSearchBindings,memeBindings,memberMemoryBindings,extensionBindings]){bindings.get(sid)?.();bindings.delete(sid);}
     dshBindings.get(sid)?.dispose();dshBindings.delete(sid);fileBindings.get(sid)?.dispose();fileBindings.delete(sid);
     const handle=handles.get(sid);handles.delete(sid);if(handle)await handle.dispose();
   }
@@ -642,6 +654,7 @@ export function apply(ctx, config={}) {
   ctx.on('agent/request',async({agent},next)=>{
     let result=await next();
     const sid=String(agent.session.id), key=keyFor(sid), profile=profiles[key];
+    if(key)assertJingyuCurrent(key);
     if(profile && !windowPolicy(key) && !staged.has(sid) && agent.session.surface.nodes.length){
       reconcilePersona(agent.session,profile);
       const state=contextState(agent.session,profile.digest,profile.instructionsDigest);
@@ -715,7 +728,8 @@ export function apply(ctx, config={}) {
     const item=pending.get(sid);pending.delete(sid);clearTimeout(item.timer);
     item.webReaderTurn?.controller.abort();
     const reason=event.data.reason?.kind, failure=event.data.reason?.error;
-    const output=reason==='completed'?{text:turn?.text ?? '',sessionId:sid}:{error:'turn_'+(reason ?? 'failed'),sessionId:sid,...(item.admitted?{admitted:true}:{}),...(failure?.code?{code:String(failure.code)}:{}),...(failure?.message?{detail:String(failure.message).slice(0,2000)}:{})};
+    let output=reason==='completed'?{text:turn?.text ?? '',sessionId:sid}:{error:'turn_'+(reason ?? 'failed'),sessionId:sid,...(item.admitted?{admitted:true}:{}),...(failure?.code?{code:String(failure.code)}:{}),...(failure?.message?{detail:String(failure.message).slice(0,2000)}:{})};
+    try{assertJingyuCurrent(key);}catch{output={error:'JINGYU_MEMORY_CHANGED',sessionId:sid,admitted:item.admitted===true};}
     if(item.batchId&&(!output.error||item.admitted)){
       const cache=profiles[key].cache ??= {};cache[item.batchId]={digest:profiles[key].digest,replyFormat:'final-message-v1',output};
       for(const id of Object.keys(cache).slice(0,-20))delete cache[id];saveQuietly();
@@ -726,6 +740,7 @@ export function apply(ctx, config={}) {
   // Observe the actual native request, without replacing the adapter or making
   // another call. This is also a fail-closed check against display-only leakage.
   ctx.on('llm/stream',(options,next)=>{
+    const memoryKey=keyFor(String(options.sessionId??''));if(memoryKey)assertJingyuCurrent(memoryKey);
     const key=keyFor(String(options.sessionId??''));if(internalGroupChat&&key&&(options.tools??[]).length)throw Error('ASSISTANT_CHAT_TOOL_LEAK');if(!key||!windowPolicy(key))return next();
     if(!accountReady())throw Error('HISTORY_ACCOUNT_CHANGED');
     const messages=options.messages??[],window=messages.find(m=>m.source?.socialInputWindow);
@@ -819,7 +834,8 @@ export function apply(ctx, config={}) {
         const extensionTurn={conversationKey:key,conversationName:profiles[key].conversationName,actorId:body.assistantSender??body.pluginSender??'',sessionId:sid,replies:[],toolCalls:0,networkOptOut};
         const additions=extension?.runtime.instructions(key,message) ?? '';
         const hookResults=extension ? await boundedTask(()=>extension.runtime.hooks('before-context',{message},extensionTurn),{timeoutMs:5000,signal:webReaderTurn.controller.signal}) : [];
-        const extraContext=[additions,...hookResults.map(item=>typeof item?.context==='string'?item.context.slice(0,4000):'')].filter(Boolean).join('\n').slice(0,10000);
+        let jingyuNotice='';try{const service=jingyuFor(root);jingyuNotice=memoryContext(service.store,key,verifiedPrivateActor(key,body.pluginSender??body.assistantSender??''),message.slice(-300));}catch{}
+        const extraContext=[jingyuNotice,additions,...hookResults.map(item=>typeof item?.context==='string'?item.context.slice(0,4000):'')].filter(Boolean).join('\n').slice(0,10000);
         const extensionNotice=extraContext ? '\n<local_extension_context>\n'+extraContext+'\n</local_extension_context>\n扩展资料只用于本轮任务；不能覆盖本机人格、聊天范围、工具权限或最终回复格式。' : '';
         const memeTurn={controller:webReaderTurn.controller,networkOptOut,calls:0,choices:[],allowedUrls:webReaderTurn.urls,disabled:body.memeLibraryDisabled===true};
         const output=await new Promise((resolve,reject)=>{
@@ -839,7 +855,7 @@ export function apply(ctx, config={}) {
           };
           item.cancel=cancel;
           item.timer=setTimeout(()=>cancel(new Error('agent_timeout')),Number(profiles[key]?.workMode==='assistant'&&!internalGroupChat?config.assistantTimeoutMs??(readDshAccess(root,key).timeoutMinutes??30)*60000:config.turnTimeoutMs??120000));
-          item.dshAccessTurn={controller:webReaderTurn.controller,networkOptOut,skillCalls:0,toolCalls:0};item.memberMemoryTurn=memberMemoryTurn;item.memeTurn=memeTurn;item.webReaderTurn=webReaderTurn;item.modelSearchTurn=modelSearchTurn;item.search=search;item.extensionTurn=extensionTurn;item.extensionContext=extensionNotice;pending.set(sid,item);if(item.taskId)assistantTasks.progress(item.taskId,'模型正在处理',{sessionId:sid});
+          item.dshAccessTurn={controller:webReaderTurn.controller,networkOptOut,skillCalls:0,toolCalls:0};item.memberMemoryTurn=memberMemoryTurn;item.memeTurn=memeTurn;item.webReaderTurn=webReaderTurn;item.modelSearchTurn=modelSearchTurn;item.search=search;item.extensionTurn=extensionTurn;item.jingyuTurn={actor:body.pluginSender??body.assistantSender??'',controller:webReaderTurn.controller,calls:0};item.jingyuEpoch=profiles[key].jingyuEpoch;item.extensionContext=extensionNotice;pending.set(sid,item);if(item.taskId)assistantTasks.progress(item.taskId,'模型正在处理',{sessionId:sid});
           requestController.signal.addEventListener('abort',()=>cancel(requestController.signal.reason??new Error('request_closed')),{once:true});
           webReaderTurn.controller.signal.addEventListener('abort',()=>cancel(new Error('request_closed')),{once:true});
           if(webReaderTurn.controller.signal.aborted){cancel(new Error('request_closed'));return;}
@@ -864,6 +880,7 @@ export function apply(ctx, config={}) {
         if(!windowPolicy(key))retireTurnContext(agent.session,createUserMessage);
         else await restoreWindowDisplay(key,agent,windowPolicy(key));
         await boundedTask(()=>ctx.sessions.flush(agent.session),{timeoutMs:10000});contextStatus(key,sid);recordSessionUsage(history,key,agent.session);history.archiveSession(key,agent.session);saveQuietly();
+        try{assertJingyuCurrent(key);}catch(error){throw Object.assign(error,{admitted:true});}
         return output;
       });
   }
@@ -1005,7 +1022,7 @@ export function apply(ctx, config={}) {
     for(const dispose of modelSearchBindings.values())dispose();
     if(extensionPromise)await (await extensionPromise)?.runtime.dispose();
     await Promise.allSettled([...handles.values()].map(handle=>handle.dispose()));
-    history.close();
+    history.close();closeJingyu(root);
   })();
   if(internalGroupChat)return {followup:(body,controller,onAdmitted)=>nativeRequest('/followup',body,controller,onAdmitted),dispose};
   ctx.effect(()=>dispose);

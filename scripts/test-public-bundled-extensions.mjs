@@ -1,6 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import {randomInt} from 'node:crypto';
 import {createConsole} from './console-server.mjs';
 test('project plugin management is in DSH and chat authorization preserves persona and rejects stale or foreign updates',async t=>{
+ fs.mkdirSync(path.resolve('state'),{recursive:true});
  const root=fs.mkdtempSync(path.resolve('state/dsh-api-fixture-'));for(const dir of ['config','roles','state'])fs.mkdirSync(path.join(root,dir));const config=JSON.parse(fs.readFileSync('config/wechatagent.example.json','utf8'));config.wechat.whitelist={private:[123],groups:[456]};fs.writeFileSync(path.join(root,'config/wechatagent.json'),JSON.stringify(config));fs.writeFileSync(path.join(root,'roles',config.persona.default+'.md'),'测试人格');
  const app=createConsole({root,port:randomInt(20000,60000),fetchImpl:async()=>{throw Error('offline');}});t.after(async()=>{await app.close();assert(root.startsWith(path.resolve('state')+path.sep));fs.rmSync(root,{recursive:true,force:true});});const address=await app.start(),base='http://127.0.0.1:'+address.port,{token}=await fetch(base+'/api/info').then(res=>res.json());
  const rpc=async(route,body)=>{const response=await fetch(base+route,{method:body?'POST':'GET',headers:{'X-Console-Token':token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:response.status,data:await response.json()};};

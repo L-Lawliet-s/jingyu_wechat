@@ -23,6 +23,10 @@
 
 公开可见不等于一般再分发许可，见 [GitHub 许可说明](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository)。本说明不是法律或平台授权保证，也不自动授予商标、账号数据或独立第三方内容的权利。
 
+## 本地语音测试
+
+鲸鱼本地语音测试可选安装 [Vosk](https://github.com/alphacep/vosk-api)（Apache-2.0）和 [python-sounddevice](https://github.com/spatialaudio/python-sounddevice)（MIT）。语音模型单独下载并按各模型许可使用；源码仓库不分发模型或 Python 依赖二进制。音频工作进程为本项目新增实现。
+
 ## Weather data services
 
 Weather forecasts are fetched from [Open-Meteo](https://open-meteo.com/) and locations from its GeoNames-backed geocoding API. Data is provided under [CC BY 4.0](https://open-meteo.com/en/licence); source attribution is retained in the model evidence and links. The default public API is for personal/non-commercial use and subject to [Open-Meteo terms and request limits](https://open-meteo.com/en/terms). Commercial use requires a suitable provider subscription or a separately operated service. No provider source code is bundled.

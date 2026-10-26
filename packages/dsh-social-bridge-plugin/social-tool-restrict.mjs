@@ -12,7 +12,7 @@ export const inject = ['tools'];
 export function apply(ctx) {
   const marker=Symbol.for('wechatagent.scoped-tool-guard.v1');if(Object.hasOwn(ctx,marker))return;Object.defineProperty(ctx,marker,{value:true,configurable:true});
   ctx.tools.presentAs?.('native'); // Visibility and execution use the same live per-chat authorization below.
-  const policies = agent => [Symbol.for('wechatagent.extension-tools.v1'),WEB_READER_POLICY,MODEL_SEARCH_POLICY,DSH_ACCESS_POLICY,FILE_TRANSFER_POLICY,MEME_LIBRARY_POLICY,MEMBER_MEMORY_POLICY,HISTORY_POLICY]
+  const policies = agent => [Symbol.for('jingyu.native-tools.v1'),Symbol.for('wechatagent.extension-tools.v1'),WEB_READER_POLICY,MODEL_SEARCH_POLICY,DSH_ACCESS_POLICY,FILE_TRANSFER_POLICY,MEME_LIBRARY_POLICY,MEMBER_MEMORY_POLICY,HISTORY_POLICY]
     .map(symbol => agent?.ctx?.[symbol] ?? ctx[symbol]).filter(Boolean);
   const assistantAllowed=agent=>{try{return agent?.ctx?.[ASSISTANT_ACCESS]?.()!==false;}catch{return false;}};
   ctx.tools.guard(exec => assistantAllowed(exec?.agent)&&policies(exec?.agent).some(policy => policy.check(exec?.name)) ? undefined : '微信群友会话不允许调用未授权工具');

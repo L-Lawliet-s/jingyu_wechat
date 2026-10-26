@@ -1,0 +1,2 @@
+# The reviewed ZIP contains LF bytes; checkout conversion must not invalidate it.
+optional-extensions/fish-notebook/** text eol=lf

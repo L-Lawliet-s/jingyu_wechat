@@ -243,6 +243,28 @@ test('native meme tools return only the current chat resource as authenticated R
   const cached=await runtime.request('/followup',body);assert.equal(cached.cached,true);assert.equal(cached.memeChoices[0].id,id);assert.equal(selections,1);
 });
 
+test('Jingyu native chat filters shared context, exposes scoped tools and rotates after shared revocation',async t=>{
+ const f=await fixture(t),account='b'.repeat(64),owner='wxid_fixture_owner',contact='wxid_fixture_contact';
+ const {JingyuStore,actorChat}=await import('../packages/jingyu/store.mjs');
+ fs.mkdirSync(path.join(f.dir,'state/weflow'),{recursive:true});fs.writeFileSync(path.join(f.dir,'state/weflow/active-account.json'),JSON.stringify({id:account,legacyId:account}));
+ fs.mkdirSync(path.join(f.dir,'config'),{recursive:true});fs.writeFileSync(path.join(f.dir,'config/wechatagent.json'),JSON.stringify({wechat:{whitelist:{private:[actorChat(owner).split(':')[2],actorChat(contact).split(':')[2]],groups:[]}}}));
+ const store=new JingyuStore(f.dir,account);store.saveSettings({ownerWxid:owner,sharedMemoryEnabled:true,allowGroupShared:false});
+ const shared=store.saveMemory({chat:actorChat(owner),actor:owner,scope:'owner_shared',text:'蓝鲸计划是我们的学习约定',desktop:true});
+ store.saveMemory({chat:actorChat(owner),actor:owner,scope:'owner_private',text:'蓝鲸计划的主人隐私'});store.close();
+ const options={beforeAssistant:async agent=>{
+   const result=JSON.parse((await agent.registeredTools.get('jingyu_memory_read').execute({query:'蓝鲸计划'})).content);
+   assert.equal(result.memories.length,1);assert.equal(result.memories[0].scope,'owner_shared');
+   assert.equal((await agent.registeredTools.get('jingyu_balance').execute({})).isError,true);
+ }};
+ const r=await f.start(options),body={...info,conversationKey:actorChat(contact),pluginSender:contact,message:'说说蓝鲸计划'};
+ const first=await r.request('/followup',body);assert(r.calls.model.at(-1).includes('我们的学习约定'));assert(!r.calls.model.at(-1).includes('主人隐私'));
+ const edit=new JingyuStore(f.dir,account);edit.removeMemory(shared.id);edit.close();options.beforeAssistant=undefined;
+ const second=await r.request('/followup',{...body,message:'撤销后继续'});assert.notEqual(first.sessionId,second.sessionId);assert(!r.calls.model.at(-1).includes('我们的学习约定'));
+ const nextStore=new JingyuStore(f.dir,account);const next=nextStore.saveMemory({chat:actorChat(owner),actor:owner,scope:'owner_shared',text:'第二条蓝鲸计划',desktop:true});nextStore.close();
+ options.beforeAssistant=async()=>{const editor=new JingyuStore(f.dir,account);editor.removeMemory(next.id);editor.close();};options.assistantMessages=[[{type:'text',text:'RESPOND: MUST_NOT_DELIVER_REVOKED_CONTEXT'}]];
+ const blocked=await r.request('/followup',{...body,message:'说说第二条蓝鲸计划'},503);assert.equal(blocked.detail,'JINGYU_MEMORY_CHANGED');assert.equal(blocked.admitted,true);assert(!JSON.stringify(blocked).includes('MUST_NOT_DELIVER'));
+});
+
 async function fixture(t) {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'WeChatAgent native context '));
   fs.mkdirSync(path.join(dir,'node_modules/@deepseek-ai/dsh-llm'),{recursive:true});
@@ -258,8 +280,8 @@ async function fixture(t) {
   for(const name of ['fish-notebook.mjs','fish-notebook-policy.mjs','fish-notebook-store.mjs','memory-summary.mjs','reply-layout-policy.mjs','assistant-feedback.mjs','assistant-notifications.mjs','social-tool-restrict.mjs','assistant-tasks.mjs','assistant-control.mjs','plugin-catalog.mjs','work-modes.mjs','session-groups.mjs','prompt-context.mjs','member-memory.mjs','member-memory-policy.mjs','meme-library.mjs','meme-library-policy.mjs','model-search.mjs','dsh-access.mjs','file-tools.mjs','file-transfers.mjs','assistant-policy.mjs','conversation-policy.mjs','dsh-bundled.mjs','sticker-pool-review.mjs','dsh-migration.mjs','dsh-search.mjs','search-provider.mjs','search-budget.mjs','search-policy.mjs','weather-query.mjs','weather-source.mjs','social-tool-policy.mjs','context-policy.mjs','history-policy.mjs','history-store.mjs','history-runtime.mjs','usage-summary.mjs','request-window.mjs'])fs.copyFileSync('packages/dsh-social-bridge-plugin/'+name,path.join(pluginDir,name));
   for(const name of ['web-reader.mjs','web-reader-policy.mjs','web-reader-fetch.mjs','web-reader-content.mjs','web-reader-zxsj.mjs'])fs.copyFileSync('packages/dsh-social-bridge-plugin/'+name,path.join(pluginDir,name));
   fs.cpSync('packages/dsh-social-bridge-plugin/skills',path.join(pluginDir,'skills'),{recursive:true});
-  for(const name of ['plugin-api','extension-runtime'])fs.cpSync('packages/'+name,path.join(dir,'packages',name),{recursive:true});
-  fs.mkdirSync(path.join(dir,'components/qq-bridge/src'),{recursive:true});fs.copyFileSync('components/qq-bridge/src/safe-fetch.js',path.join(dir,'components/qq-bridge/src/safe-fetch.js'));
+  for(const name of ['plugin-api','extension-runtime','jingyu'])fs.cpSync('packages/'+name,path.join(dir,'packages',name),{recursive:true});
+  fs.mkdirSync(path.join(dir,'components/qq-bridge/src'),{recursive:true});for(const name of ['safe-fetch.js','role-card.js'])fs.copyFileSync('components/qq-bridge/src/'+name,path.join(dir,'components/qq-bridge/src',name));
   for(const name of ['htmlparser2','entities','domhandler','domutils','dom-serializer','domelementtype'])fs.cpSync('packages/dsh-social-bridge-plugin/node_modules/'+name,path.join(dir,'node_modules',name),{recursive:true});
   fs.mkdirSync(path.join(dir,'state'));
   fs.writeFileSync(path.join(dir,'state/bridge-config.json'),JSON.stringify({role:persona,persona_name:'测试人格',roles:{}}));

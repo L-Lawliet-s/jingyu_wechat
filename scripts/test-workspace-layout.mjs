@@ -11,7 +11,7 @@ function fixture({offline=false,tab='summary'}={}){
  return {state,ui,requests};
 }
 test('main entries preserve legacy links and isolate memory subpage routes',()=>{
- assert.deepEqual(MAIN_PAGES,['overview','chats','roles','extensions','stickers','memory','settings']);
+ assert.deepEqual(MAIN_PAGES,['overview','jingyu','chats','roles','extensions','stickers','memory','settings']);
  assert.deepEqual(consoleRoute('#sessions'),{page:'chats',detail:'usage'});assert.deepEqual(consoleRoute('#behavior'),{page:'settings',section:'chat'});assert.equal(routeKey(consoleRoute('#connections')),'settings/connections');assert.equal(routeKey(consoleRoute('#tools')),'settings/diagnostics');assert.equal(routeKey(consoleRoute('#logs')),'settings/logs');
  assert.equal(routeKey(consoleRoute('#settings/assistant')),'settings/assistant');assert.equal(routeKey(consoleRoute('#stickers/sources')),'stickers/sources');assert.equal(routeKey(consoleRoute('#extensions/network')),'extensions/network');assert.equal(consoleRoute('#settings/unknown').section,'chat');assert.equal(consoleRoute('#not-a-page').page,'overview');
  const html=fs.readFileSync('public/console/index.html','utf8'),entries=[...html.matchAll(/data-page="([^"]+)"/g)].map(match=>match[1]).filter(id=>id!=='setup');assert.deepEqual(entries,MAIN_PAGES);
