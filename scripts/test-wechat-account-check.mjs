@@ -45,7 +45,7 @@ test('a body timeout remains a timeout, malformed JSON stays invalid, and remote
 
 async function consoleFixture(t,{live,setup,stop}={}){
  const f=fixture(t);let setups=0,stops=0,calls=0;
- const app=createConsole({root:f.root,port:0,readerSetup:async({request})=>{setups++;return setup?setup(request):{ok:true,dbPath:request.dbPath,myWxid:request.myWxid,protectedKey:request.decryptKey||'userdpapi:Yg=='};},fetchImpl:async()=>response(live?live(++calls):health),runner:async()=>{stops++;return stop?stop():0;}});
+ const app=createConsole({root:f.root,port:0,componentSetup:async()=>{},readerSetup:async({request})=>{setups++;return setup?setup(request):{ok:true,dbPath:request.dbPath,myWxid:request.myWxid,protectedKey:request.decryptKey||'userdpapi:Yg=='};},fetchImpl:async()=>response(live?live(++calls):health),runner:async()=>{stops++;return stop?stop():0;}});
  const address=await app.start(),base='http://127.0.0.1:'+address.port,info=await fetch(base+'/api/info').then(r=>r.json());
  t.after(async()=>{app.server.closeAllConnections();await new Promise(resolve=>app.server.close(resolve));});
  const request=async(route,body)=>{const r=await fetch(base+route,{method:body===undefined?'GET':'POST',headers:{'X-Console-Token':info.token,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});return r.json();};
@@ -57,6 +57,17 @@ async function consoleFixture(t,{live,setup,stop}={}){
 test('a wrong live account fails before capture or stopping services and leaves the saved account untouched',async t=>{
  const f=await consoleFixture(t,{live:()=>({...health,databaseAccounts:['wxid_a']})}),before=fs.readFileSync(path.join(f.root,'state/weflow/WeFlow-config.json'));const job=await f.wait((await f.connect()).id);
  assert.equal(job.state,'failed');assert.equal(job.code,'HOOK_ACCOUNT_MISMATCH');assert.equal(job.phase,'checking-wechat');assert.equal(f.setups,0);assert.equal(f.stops,0);assert.deepEqual(fs.readFileSync(path.join(f.root,'state/weflow/WeFlow-config.json')),before);assert(!fs.existsSync(path.join(f.root,'state/weflow/active-account.json')));
+});
+
+test('one-click connection prepares components and launches a missing sender before database validation',async t=>{
+ const f=fixture(t);let prepared=0,checks=0,opened=0,captured=0;
+ const app=createConsole({root:f.root,port:0,componentSetup:async()=>{prepared++;},accountVerifier:async()=>{checks++;if(checks===1)throw Object.assign(Error('HOOK_NOT_LISTENING'),{code:'HOOK_NOT_LISTENING'});},readerSetup:async({request})=>{captured++;return {ok:true,dbPath:request.dbPath,myWxid:request.myWxid,protectedKey:'userdpapi:Yg=='};},runner:async()=>{opened++;return 0;}});
+ const address=await app.start(),base='http://127.0.0.1:'+address.port;t.after(async()=>{app.server.closeAllConnections();await new Promise(resolve=>app.server.close(resolve));});const {token}=await fetch(base+'/api/info').then(r=>r.json()),headers={'X-Console-Token':token,'Content-Type':'application/json'};
+ const rpc=async(route,body)=>fetch(base+route,{method:body?'POST':'GET',headers,...(body?{body:JSON.stringify(body)}:{})}).then(r=>r.json());
+ const revision=(await rpc('/api/reader-config')).revision,job=await rpc('/api/jobs',{action:'reader-connect',revision,dbPath:f.a.dbPath,myWxid:f.a.myWxid,decryptKey:'',autoKey:true});let result;
+ for(let n=0;n<100;n++){result=await rpc('/api/job?id='+job.id);if(result.finishedAt)break;await new Promise(resolve=>setTimeout(resolve,5));}
+ assert.equal(result.state,'succeeded');assert.equal(prepared,1);assert.equal(opened,1);assert.equal(captured,1);assert.equal(result.readerConfigured,true);
+ const status=await rpc('/api/status');assert.equal(status.readerVerified,true);assert.equal(status.ready,false);assert.match(status.services.find(item=>item.id==='reader').detail,/账号已验证/);assert.equal(status.services.find(item=>item.id==='reader').configured,true);
 });
 
 test('an incomplete selection cannot silently fall back to the previously saved account',async t=>{

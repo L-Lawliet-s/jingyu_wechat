@@ -14,4 +14,6 @@
 
 实际检查与尚未完成的实机项目见 [验证记录](docs/JINGYU_VERIFICATION.md)。
 
+微信首次连接的自动初始化、组件准备及实机结果见 [连接修复说明](docs/WECHAT_CONNECTION_FIX.md)。
+
 账号、密钥和运行数据不进入 Git。初始导入保留上游提交历史、[LICENSE](LICENSE) 和 [第三方来源与许可](LICENSES.md)。上游基线为 5cdedddc60936c550ce5c02558eb025a5350f48e。

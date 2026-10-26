@@ -44,6 +44,9 @@ export function runConsoleCommand(spec, onOutput, { cwd, env = process.env, time
 }
 
 export function taskFailureMessage(output, code) {
+  if (/HOOK_COMPONENTS_MISSING/.test(output)) return '没有找到完整的匹配微信组件，请先点击“自动准备微信组件”或准备完整安装资源。';
+  if (/HOOK_TOKEN_MISSING|HOOK_TOKEN_INVALID/.test(output)) return '本机连接凭据尚未准备好，请点击“自动准备微信组件”后重试。';
+  if (/Another desktop WeChat is running/.test(output)) return '当前还有其他版本的微信正在运行。请保存未发送内容，从托盘退出后，再点击项目的“打开微信”。程序不会自行停止你的微信。';
   if (/PYTHON_RUNTIME_NOT_READY|Automatic runtime preparation failed/.test(output)) return '运行环境尚未就绪，请在首次配置点击“一键准备环境”重试，无需安装或填写 Python 路径。';
   if (/DSH_NOT_CONFIGURED/.test(output)) return '请先在“首次配置”点击“下载安装 DSH”，安装后选择 DSH 程序位置并保存设置。';
   if (/DSH_PLUGIN_NOT_READY/.test(output)) return 'DSH 插件尚未就绪，请在 DSH 添加并启用本机插件，再从托盘完整退出并重新打开 DSH。';

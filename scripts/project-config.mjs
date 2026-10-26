@@ -16,6 +16,7 @@ import { validateWebReaderSettings } from '../packages/dsh-social-bridge-plugin/
 import {validateMemeLibrarySettings} from '../packages/dsh-social-bridge-plugin/meme-library-policy.mjs';
 import {validateFishNotebook} from '../packages/dsh-social-bridge-plugin/fish-notebook-policy.mjs';
 import {validateMemberMemory} from '../packages/dsh-social-bridge-plugin/member-memory-policy.mjs';
+import {ensureHookToken} from './wechat-components.mjs';
 
 import {validateConversationSettings,conversationMode} from '../packages/dsh-social-bridge-plugin/conversation-policy.mjs';
 import {migrateDshSettings} from '../packages/dsh-social-bridge-plugin/dsh-migration.mjs';
@@ -75,11 +76,7 @@ export function prepare(root = projectRoot) {
   const state = path.join(root, 'state');
   for (const dir of ['logs', 'weflow', 'attachments']) fs.mkdirSync(path.join(state, dir), { recursive: true });
   if (config.runtime.sender === 'wechat-hook') {
-    const hookDir = path.join(state, 'hook');
-    fs.mkdirSync(hookDir, { recursive: true });
-    const hookToken = path.join(hookDir, 'native-token.txt');
-    if (!fs.existsSync(hookToken)) fs.writeFileSync(hookToken, crypto.randomBytes(32).toString('hex'), { flag: 'wx', mode: 0o600 });
-    if (!/^[a-f0-9]{64}$/.test(fs.readFileSync(hookToken, 'utf8').trim())) throw new Error('Invalid native Hook token');
+    ensureHookToken(root);
   }
   const tokenFile = path.join(state, 'social-dsh-token.txt');
   if (!fs.existsSync(tokenFile)) fs.writeFileSync(tokenFile, crypto.randomBytes(32).toString('hex'), { flag: 'wx', mode: 0o600 });

@@ -93,7 +93,7 @@ else {
     delete process.env.ELECTRON_RUN_AS_NODE;
     delete process.env.PSModulePath;
     const { createConsole } = await import(pathToFileURL(path.join(root, 'scripts/console-server.mjs')).href);
-    if (deployment) {
+    {
       const { prepare } = await import(pathToFileURL(path.join(root, 'scripts/project-config.mjs')).href);
       prepare(root);
     }

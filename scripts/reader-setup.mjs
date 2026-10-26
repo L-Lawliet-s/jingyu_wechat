@@ -1,6 +1,22 @@
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import {findPython} from '../packages/jingyu/python-runtime.mjs';
+import fs from 'node:fs';
+
+// Reuse directory hints only. Old credentials and account selections are never
+// forwarded; the current live account still has to pass the independent gate.
+export async function discoverReaderAccounts({root,python,dbPath='',setup=runReaderSetup}){
+  const initial=await setup({root,python,request:{operation:'discover',dbPath}});
+  if(dbPath||!initial.ok)return initial;
+  const roots=[root,path.resolve(root,'../jingyu_runtime/data/workspace')],hints=new Set(),accounts=new Map((initial.accounts??[]).map(item=>[path.resolve(item.dbPath).toLowerCase(),item]));
+  for(const workspace of roots)try{
+    const previous=JSON.parse(fs.readFileSync(path.join(workspace,'state/weflow/WeFlow-config.json'),'utf8').replace(/^\uFEFF/,'')),value=previous.dbPath;
+    if(typeof value!=='string'||!value||/^(?:safe:|userdpapi:|\\\\)/.test(value)||value.includes('://'))continue;
+    let directory=path.resolve(workspace,value);if(path.basename(directory).toLowerCase()==='db_storage')directory=path.dirname(directory);hints.add(path.dirname(directory));
+  }catch{}
+  for(const hint of hints){const result=await setup({root,python,request:{operation:'discover',dbPath:hint}});if(result.ok)for(const item of result.accounts??[])accounts.set(path.resolve(item.dbPath).toLowerCase(),item);}
+  return {...initial,accounts:[...accounts.values()]};
+}
 
 // Credentials travel over stdin and the private result channel, never argv or job logs.
 export function runReaderSetup({ root, python, request, onProgress = () => {} }) {
@@ -66,7 +82,10 @@ export const readerSetupMessages = {
   HOOK_HEALTH_FAILED: '无法核对实时微信账号，原配置已保留。请检查匹配微信连接后重试。',
   HOOK_ACCOUNT_METADATA_INVALID: '发送组件未返回有效账号信息，无法安全切换。请修复微信连接或检查发送组件版本。',
   HOOK_AUTH_FAILED: '微信发送组件令牌与当前项目不一致，原配置已保留。请使用“修复微信连接”核对后重开匹配微信。',
-  HOOK_TOKEN_MISSING: '发送组件令牌尚未准备。请在工具页准备配置，再打开匹配微信后重试。',
+  HOOK_TOKEN_MISSING: '本机连接凭据尚未初始化。请点击“自动准备微信组件”，再打开项目匹配微信后重试。',
+  HOOK_TOKEN_INVALID: '本机连接凭据格式无效，原文件已保留。请修复微信连接。',
+  HOOK_COMPONENTS_MISSING: '未找到完整的匹配微信组件。请点击“自动准备微信组件”，使用已安装版本的原始程序资源进行准备。',
+  HOOK_COMPONENT_IN_USE: '组件正在使用或无法写入，原组件已保留。请退出项目匹配微信后重新准备。',
   HOOK_HEALTH_INVALID_RESPONSE: '微信发送端口返回了无效响应，原配置已保留。请检查端口或修复微信连接。',
   HOOK_INITIALIZATION_TIMEOUT: '匹配微信发送组件未能完成初始化。请使用“修复微信连接”，核对并确认后重开。',
   HOOK_VERSION_MISMATCH: '微信版本与当前发送组件不匹配，原配置已保留。请使用项目匹配的微信客户端。',

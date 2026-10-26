@@ -23,11 +23,12 @@ import { conversationId } from './hook-onebot.mjs';
 import { runConsoleCommand, taskFailureMessage, windowsPowerShellEnvironment, windowsPowerShellExecutable } from './console-process.mjs';
 import { personaError,personaReferences } from '../public/console/persona-files.mjs';
 import {applyChatSettings} from '../public/console/conversation-settings.mjs';
-import { runReaderSetup, readerSetupMessage } from './reader-setup.mjs';
+import { runReaderSetup, readerSetupMessage,discoverReaderAccounts } from './reader-setup.mjs';
 import { dshConfigurationMatches,sameProjectPath } from './dsh-configuration.mjs';
 import { createProcessRecovery,startupConflictPorts } from './process-recovery.mjs';
 import { readerAccountId, cachedReaderAccount, applyReaderAccount,activeReaderAccount } from './reader-account-state.mjs';
 import {verifyWeChatAccount} from './wechat-account-check.mjs';
+import {prepareWeChatComponents,wechatComponentsStatus} from './wechat-components.mjs';
 
 const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -90,7 +91,7 @@ export function validateConsoleConfig(config, root) {
 }
 
 import {allowedConversation,validateConversationSettings,conversationWorkMode} from '../packages/dsh-social-bridge-plugin/conversation-policy.mjs';
-export function createConsole({ root = projectRoot, port = 3210, runner, readerSetup = runReaderSetup, accountVerifier = verifyWeChatAccount, fetchImpl = fetch, nodeExecutable = process.execPath, filePicker, onQuit, processProbe, processStop } = {}) {
+export function createConsole({ root = projectRoot, port = 3210, runner, readerSetup = runReaderSetup, accountVerifier = verifyWeChatAccount, componentSetup=prepareWeChatComponents, fetchImpl = fetch, nodeExecutable = process.execPath, filePicker, onQuit, processProbe, processStop } = {}) {
   const updates=createUpdateChecker({root,fetchImpl});
   const publicDir = path.join(projectRoot, 'public', 'console');
   const pluginInstaller=new PluginInstaller(root);
@@ -215,14 +216,15 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
       const bridgeReady = !!value(4) && adapter?.ob_connected === true;
       const hookReady = adapter?.hook_connected === true && adapter?.hook_account_verified === true && adapter?.version === config.hook.expectedVersion;
       const ready = readerReady && bridgeReady && hookReady && dshReady && adapter?.reader_connected === true;
+      const boundReader=readerVerified();
       const { rows } = buffered();
       const services = [
-        { id: 'reader', label: '微信读取', ready: readerReady, detail: readerReady ? '数据库可读，消息同步正常' : readerState?.lastError ? '读取异常，请重新连接并验证' : readerFailureDetail(), port: config.ports.weflow },
-        { id: 'bridge', label: '消息桥接', ready: bridgeReady && hookReady && adapter?.reader_connected === true, detail: bridgeReady && hookReady && adapter?.reader_connected ? '收发连接正常，账号已核验' : !hookReady ? '等待匹配微信登录与发送连接' : '等待消息桥接连接', port: config.ports.adapter },
+        { id: 'reader', label: '微信读取', ready: readerReady, configured:boundReader, detail: readerReady ? '数据库可读，消息同步正常' : readerState?.lastError ? '读取异常，请重新连接并验证' : boundReader?'账号已验证，读取服务尚未启动':readerFailureDetail(), port: config.ports.weflow },
+        { id: 'bridge', label: '消息桥接', ready: bridgeReady && hookReady && adapter?.reader_connected === true, detail: bridgeReady && hookReady && adapter?.reader_connected ? '收发连接正常，账号已核验' : boundReader&&!readerState&&!adapter&&!value(4)?'消息服务尚未启动':!hookReady ? '等待匹配微信登录与发送连接' : '等待消息桥接连接', port: config.ports.adapter },
         { id: 'dsh', label: '模型连接', ready: dshReady, detail: dshReady ? 'DSH 插件已连接' : '打开 DSH 并启用本项目插件', port: config.ports.dshPlugin },
       ];
       const running = !!readerState || !!adapter || !!value(4);
-      return { ready, running, services, lastError: safeText(adapter?.last_error ?? ''),
+      return { ready, running, readerVerified:boundReader, services, lastError: safeText(adapter?.last_error ?? ''),
         stats: { received: rows.filter(m => !m.outgoing).length, sent: rows.filter(m => m.outgoing).length, pending: rows.filter(m => !m.outgoing && !m.processed).length, chats: buffered().chatCount },
         recent: rows.sort((a, b) => b.timestamp - a.timestamp).slice(0, 6).map(m => ({ key: m.key, name: m.conversation_name, text: m.text?.slice(0, 100), outgoing: m.outgoing, timestamp: m.timestamp })),
         ...optionalJson(preferenceFile), activeJob: activeJob ? jobs.get(activeJob) : null, latestJob: latestJob ? jobs.get(latestJob) : null, updatedAt: Date.now() };
@@ -235,6 +237,7 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
     if (['start', 'stop', 'restart', 'prepare'].includes(action)) return ps('manage.ps1', action);
     if (action === 'python-prepare') return node('prepare-python.mjs','--configure');
     if (action === 'audio-prepare') return node('prepare-python.mjs','--audio');
+    if (action === 'wechat-prepare') return node('prepare-wechat.mjs');
     if (action === 'setup') return ps(fs.existsSync(path.join(root, 'config', 'distribution.json')) ? 'check-runtime.ps1' : 'setup.ps1');
     if (action === 'dsh-open') return ps('launch-dsh.ps1');
     if (action === 'wechat-open') return ps('launch-hook-wechat.ps1', ...(fs.existsSync(path.join(root,'state/hook/native/build.previous.json')) ? ['-UpdateHook'] : []));
@@ -283,16 +286,26 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
     const checkRevision = readerRevision();
     const initialConfigRevision = snapshot().revision;
     const spec = connectRequest ? {} : command(body.action, body);
-    spec.timeoutMs = ['setup', 'python-prepare', 'audio-prepare', 'hook-build', 'hook-test'].includes(body.action) ? 1200000 : ['start', 'restart'].includes(body.action) ? 180000 : 150000;
+    spec.timeoutMs = ['setup', 'python-prepare', 'audio-prepare', 'wechat-prepare', 'hook-build', 'hook-test'].includes(body.action) ? 1200000 : ['start', 'restart'].includes(body.action) ? 180000 : 150000;
     const id = crypto.randomUUID();
     const job = { id, action: body.action, state: 'running', startedAt: Date.now(), output: '', exitCode: null };
     jobs.set(id, job); activeJob = id; latestJob = id;
     while (jobs.size > 30) jobs.delete(jobs.keys().next().value);
     const output = chunk => { job.output = safeText(job.output + chunk.toString()).slice(-40000); };
     Promise.resolve().then(async () => {
+      if(connectRequest||['wechat-open','wechat-prepare'].includes(body.action)){
+        job.phase='preparing-components';await componentSetup({root,onProgress:message=>output(message+'\n')});
+        if(body.action==='wechat-prepare')return 0;
+      }
       if (!connectRequest) return execute(spec, output);
       job.phase='checking-wechat';
-      await accountVerifier({root,config:snapshot().config,settings:connectRequest,fetchImpl,wait:false,requireReady:false});
+      try{await accountVerifier({root,config:snapshot().config,settings:connectRequest,fetchImpl,wait:false,requireReady:false});}
+      catch(error){
+        if(error.code!=='HOOK_NOT_LISTENING')throw error;
+        job.phase='opening-wechat';output('正在打开项目匹配微信，请在打开的窗口登录所选小号…\n');
+        if(await execute(command('wechat-open'),output)!==0)throw fault(taskFailureMessage(job.output,1));
+        job.phase='checking-wechat';await accountVerifier({root,config:snapshot().config,settings:connectRequest,fetchImpl,wait:false,requireReady:false});
+      }
       job.phase='validating-database';
       const result = await readerSetup({ root, python: snapshot().config.runtime.python, request: connectRequest, onProgress: message => output(message + '\n') });
       if (!result.ok) { job.message = readerSetupMessage(result.code);if(setupCode(result.code)){job.code=setupCode(result.code);output('['+job.code+'] ');}output(job.message + '\n'); return 1; }
@@ -409,6 +422,7 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
       if (req.method === 'GET' && route === '/api/info') return reply(200, { project: 'WeChatAgent Console', root, version: 1, token: csrf });
       if (req.headers['x-console-token'] !== csrf) throw fault('控制台连接已更新，请刷新页面。', 401);
       if(req.method==='GET'&&route==='/api/python-runtime')return reply(200,{reader:pythonStatus(root,'reader'),audio:pythonStatus(root,'audio')});
+      if(req.method==='GET'&&route==='/api/wechat-components')return reply(200,wechatComponentsStatus(root));
       if(route.startsWith('/api/jingyu'))return reply(200,await jingyuConsole(root,route,req.method,req.method==='GET'?{}:await readBody(req)));
       if(req.method==='GET'&&route==='/api/updates')return reply(200,await updates.check());
       if(req.method==='GET'&&route==='/api/assistant-feedback')return reply(200,feedbackSnapshot(root));
@@ -561,7 +575,7 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
         if (typeof body.dbPath !== 'string' || body.dbPath.length > 4096 || /[\0\r\n]/.test(body.dbPath)) throw fault('目录包含无效字符。');
         protectingCredential = true;
         try {
-          const result = await readerSetup({ root, python: snapshot().config.runtime.python, request: { operation: 'discover', dbPath: body.dbPath.trim() } });
+          const result = await discoverReaderAccounts({root,python:snapshot().config.runtime.python,dbPath:body.dbPath.trim(),setup:readerSetup});
           if (!result.ok) throw fault(readerSetupMessage(result.code));
           return reply(200, { accounts: result.accounts });
         } catch (error) { throw error.status ? error : fault(readerSetupMessage(error.message)); }

@@ -57,6 +57,7 @@ const actions = {
   stop: ['停止服务', '停止本项目管理的服务，控制台会继续保持打开。'],
   restart: ['重启并应用', '正在重新读取设置并重启本项目服务。'],
   prepare: ['准备配置', '生成连接配置与插件设置。'],
+  'wechat-prepare': ['准备微信组件','自动检查版本、程序签名和本机连接凭据，导入原始程序资源。'],
   'python-prepare': ['准备运行环境','自动检测或下载读取环境，无需安装 Python 或填写路径；首次准备需要联网。'],
   'audio-prepare': ['准备语音环境','自动检测或下载本地语音环境，完成后选择音频设备即可。'],
   setup: ['安装依赖', '按现有锁文件安装依赖，需要联网，可能耗时几分钟。'],
@@ -184,11 +185,11 @@ function paintStatus() {
   if (state.page !== 'overview') return;
   const runningJob = state.job?.state === 'running';
   $('#power-title').textContent = runningJob ? '正在' + (actions[state.job.action]?.[0] ?? '操作') : s.ready ? '运行中' : s.running ? '连接待完成' : '服务未启动';
-  $('#power-description').textContent = runningJob ? '操作完成后会自动更新运行状态。' : s.ready ? '收发连接已就绪，按当前设置自动回复。' : s.running ? '部分连接尚未就绪，查看下方连接检查。' : '登录匹配微信后，点击右侧按钮启动。';
+  $('#power-description').textContent = runningJob ? '操作完成后会自动更新运行状态。' : s.ready ? '收发连接已就绪，按当前设置自动回复。' : s.running ? '部分连接尚未就绪，查看下方连接检查。' : s.readerVerified ? '账号已验证。添加允许的聊天、确认 DSH 插件后，点击右侧按钮启动服务。' : '登录匹配微信后，点击右侧按钮启动。';
   const power = $('#power-button'); power.dataset.action = s.running ? 'stop' : 'start'; power.setAttribute('aria-label', s.running ? '停止服务' : '启动服务'); power.classList.toggle('active', s.ready); power.disabled = runningJob;
   $('#power-tag').className = 'status-tag ' + (s.ready ? 'ok' : s.running ? 'warn' : '');
   $('#power-tag').innerHTML = `<i class="dot ${s.ready ? 'online' : s.running ? 'warning' : ''}"></i>${s.ready ? '全部连接正常' : s.running ? '需要检查连接' : '等待启动'}`;
-  $('#service-track').innerHTML = s.services.map(service => `<div class="service-node"><div class="service-node-top"><i class="dot ${service.ready ? 'online' : 'warning'}"></i><strong>${escapeHtml(service.label)}</strong><span class="port">:${service.port}</span></div><p>${escapeHtml(service.detail)}</p><span class="status-tag ${service.ready ? 'ok' : 'warn'}">${service.ready ? '已就绪' : '待连接'}</span></div>`).join('');
+  $('#service-track').innerHTML = s.services.map(service => `<div class="service-node"><div class="service-node-top"><i class="dot ${service.ready ? 'online' : 'warning'}"></i><strong>${escapeHtml(service.label)}</strong><span class="port">:${service.port}</span></div><p>${escapeHtml(service.detail)}</p><span class="status-tag ${service.ready ? 'ok' : 'warn'}">${service.ready ? '已就绪' : service.configured&&!s.running?'已验证 · 待启动':service.id==='bridge'&&!s.running&&s.readerVerified?'待启动':'待连接'}</span></div>`).join('');
   $('#metric-messages').innerHTML = `${s.stats.received + s.stats.sent}<span>条</span>`;
   $('#metric-note').textContent = `接收 ${s.stats.received} · 发出 ${s.stats.sent} · 待处理 ${s.stats.pending}`;
   $('#recent-list').innerHTML = s.recent.length ? s.recent.map(row => `<div class="recent-row"><span class="avatar">${escapeHtml((row.name || '聊').slice(0, 1))}</span><div class="recent-copy"><strong>${escapeHtml(row.name || row.key)}</strong><p>${escapeHtml(row.text || '附件消息')}</p></div><div class="recent-meta">${new Date(row.timestamp * 1000).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}<div class="direction">${row.outgoing ? '发出' : '接收'}</div></div></div>`).join('') : empty('还没有消息记录', '服务启动后，允许的好友和群聊消息会出现在这里。', '', 'history');
@@ -411,7 +412,7 @@ function toolsPage() {
 function setupPage() {
   return `<div class="section-stack"><div class="notice plain">${icon('shield')}<span>程序使用独立的本机数据目录。账号、读取凭据和允许的聊天需要由你配置，初始允许的聊天为空。</span></div><p class="subtle"><a class="text-link" href="https://github.com/L-Lawliet-s/jingyu_wechat" target="_blank" rel="noopener noreferrer">觉得好用去GitHub上点个star吧 ${icon('arrow')}</a></p><div class="tool-grid setup-grid">
     ${pythonRuntimeCard()}
-    <section class="card">${header('登录匹配微信', '使用已准备的 4.1.10.27 客户端；源码版需先准备对应组件。', '', 'chat')}<p class="modal-description">打开微信并登录自己的账号，等待消息同步。目前发送组件适配 4.1.10.27；如果微信要求升级，请保留提示并检查兼容性。</p><button class="button" data-action="wechat-open">打开微信</button> <button class="button" data-repair-wechat>修复微信连接…</button></section>
+    <section class="card">${header('登录匹配微信', '使用已准备的 4.1.10.27 客户端；源码版需先准备对应组件。', '', 'chat')}<p class="modal-description">先准备项目专用的 4.1.10.27 微信，程序会校验并复用已有安装版的原始组件，不搬运账号或聊天记录。打开后请登录小号，等待同步。</p>${(state.wechatComponents?.items??[]).map(item=>`<p class="subtle">${escapeHtml(item.label)}：${item.ready?'已准备':'未准备'}</p>`).join('')}<button class="button" data-action="wechat-prepare">自动准备微信组件</button> <button class="button" data-action="wechat-open">打开微信</button> <button class="button" data-repair-wechat>修复微信连接…</button></section>
     ${dshInstallCard({header,field,pluginPathField})}
     </div>${readerConfigurationCard()}<section class="card">${header('启动并选择允许的聊天', '数据库显示“已验证”并完成模型连接后，启动服务。', '', 'power')}<p class="modal-description">启动后，在“允许的聊天”搜索自己的好友或群聊。添加后保存并重启，助手只会处理允许的聊天。</p><div class="button-row"><button class="button primary" data-action="start">启动服务</button><a class="button" href="#chats">选择允许的聊天</a><a class="button" href="#overview">查看连接状态</a></div></section></div>`;
 }
@@ -532,8 +533,8 @@ async function pollJob() {
       } else if (state.job.state === 'failed') state.readerError = state.job.message;
       if (state.page==='setup'||state.page==='settings'&&state.settingsSection==='connections') await renderPage();
     }
-    if (state.job?.state==='succeeded' && ['python-prepare','audio-prepare','setup'].includes(state.job.action)) {
-      state.pythonRuntime=await api('/api/python-runtime');
+    if (state.job?.state==='succeeded' && ['python-prepare','audio-prepare','wechat-prepare','wechat-open','setup'].includes(state.job.action)) {
+      state.pythonRuntime=await api('/api/python-runtime');state.wechatComponents=await api('/api/wechat-components');
       const updated=await api('/api/config'),keepDraft=hasDraft(),draft=state.draft;state.config=updated.config;state.revision=updated.revision;state.draft=keepDraft?{...draft,runtime:{...draft.runtime,python:updated.config.runtime.python}}:structuredClone(updated.config);updateDraftUI();await renderPage();
     }
     await refreshStatus();
@@ -598,7 +599,7 @@ async function persistReader(autoKey = true) {
 async function load() {
   const info = await fetch('/api/info').then(response => response.json()); state.token = info.token; state.root = info.root;
   const [config, roles, chats, deployment, pythonRuntime] = await Promise.all([api('/api/config'), api('/api/roles'), api('/api/chats'), api('/api/deployment').catch(() => ({installed:false})), api('/api/python-runtime')]);
-  state.deployment = deployment;state.pythonRuntime=pythonRuntime;
+  state.deployment = deployment;state.pythonRuntime=pythonRuntime;state.wechatComponents=await api('/api/wechat-components');
   state.config = config.config; state.draft = structuredClone(config.config); state.revision = config.revision; state.roles = roles.roles; personaCategoryUI.setData(roles.categories);
   for (const chat of chats.chats) state.names.set(chat.key, chat.name);
   selectRoute(location.hash);
