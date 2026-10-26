@@ -3,36 +3,37 @@ import path from 'node:path';
 import readline from 'node:readline';
 import {spawn} from 'node:child_process';
 import {actorChat,fault} from './store.mjs';
+import {findPython} from './python-runtime.mjs';
 
-const defaults={python:'',modelPath:'',inputDevice:-1,outputDevice:-1,voiceName:'',model:'deepseek-flash',maxMinutes:5};
+const defaults={modelPath:'',inputDevice:-1,outputDevice:-1,voiceName:'',model:'deepseek-flash',maxMinutes:5};
 export function validateAudio(value){
- if(!value||Object.keys(value).some(k=>!Object.hasOwn(defaults,k))||!['python','modelPath','voiceName','model'].every(k=>typeof value[k]==='string'&&value[k].length<=1024&&!/[\x00-\x1f]/.test(value[k]))||!path.isAbsolute(value.python)||!path.isAbsolute(value.modelPath)||!Number.isInteger(value.inputDevice)||value.inputDevice<0||!Number.isInteger(value.outputDevice)||value.outputDevice<0||!Number.isInteger(value.maxMinutes)||value.maxMinutes<1||value.maxMinutes>15||!/^[a-zA-Z0-9_.-]{1,80}$/.test(value.model))throw fault('请填写 Python、离线模型目录、音频设备编号和 1–15 分钟时限。');
+ if(!value||Object.keys(value).some(k=>!Object.hasOwn(defaults,k))||!['modelPath','voiceName','model'].every(k=>typeof value[k]==='string'&&value[k].length<=1024&&!/[\x00-\x1f]/.test(value[k]))||!path.isAbsolute(value.modelPath)||!Number.isInteger(value.inputDevice)||value.inputDevice<0||!Number.isInteger(value.outputDevice)||value.outputDevice<0||!Number.isInteger(value.maxMinutes)||value.maxMinutes<1||value.maxMinutes>15||!/^[a-zA-Z0-9_.-]{1,80}$/.test(value.model))throw fault('请检查离线模型目录、音频设备编号和 1–15 分钟时限。运行环境由软件自动管理。');
  return {...defaults,...value};
 }
 
 // This service handles audio only. It never claims that a WeChat call is connected.
 export class AudioSession{
- constructor(store,billing,{root,fetchImpl=fetch,spawnImpl=spawn,accountReady=()=>true,memoryFor=()=>'',personaFor=()=> '你是小鲸鱼，可爱、温柔、有一点傲娇。你是 AI。与主人说话时称呼主人，不攻击或嘲讽他人。',now=Date.now}={}){
-  Object.assign(this,{store,billing,root,fetchImpl,spawnImpl,accountReady,memoryFor,personaFor,now});this.worker=path.join(import.meta.dirname,'audio_worker.py');this.state='stopped';this.turns=0;this.usage={input:0,output:0};this.history=[];this.generation=0;
+ constructor(store,billing,{root,fetchImpl=fetch,spawnImpl=spawn,pythonFor=()=>findPython(root,'audio')?.executable,accountReady=()=>true,memoryFor=()=>'',personaFor=()=> '你是小鲸鱼，可爱、温柔、有一点傲娇。你是 AI。与主人说话时称呼主人，不攻击或嘲讽他人。',now=Date.now}={}){
+  Object.assign(this,{store,billing,root,fetchImpl,spawnImpl,pythonFor,accountReady,memoryFor,personaFor,now});this.worker=path.join(import.meta.dirname,'audio_worker.py');this.state='stopped';this.turns=0;this.usage={input:0,output:0};this.history=[];this.generation=0;
  }
- settings(){return {...defaults,...this.store.get('audioSettings',{})};}
+ settings(){const {python,...settings}=this.store.get('audioSettings',{});return {...defaults,...settings};}
  save(value){if(this.child)throw fault('请先停止音频会话，再修改设备。',409);this.store.set('audioSettings',validateAudio(value));return this.settings();}
  status(){return {state:this.state,turns:this.turns,usage:this.usage,startedAt:this.startedAt??null,error:this.error??null,wechatConnected:null,mode:'本地半双工音频测试；不会自动拨号或开启摄像头'};}
- async probe(python){
-  const settings=this.settings();settings.python=python??settings.python;if(typeof settings.python!=='string'||!path.isAbsolute(settings.python)||!fs.existsSync(settings.python))throw fault('请先填写可用的 Python 完整路径。');
+ async probe(){
+  const python=this.pythonFor();if(!python)throw fault('请先点击“一键准备语音环境”，软件会自动安装和配置。');
   return new Promise(resolve=>{
-   const child=this.spawnImpl(settings.python,[this.worker,'--probe'],{windowsHide:true,stdio:['ignore','pipe','ignore'],env:{...process.env,PYTHONUTF8:'1'}});let output='';
+   const child=this.spawnImpl(python,[this.worker,'--probe'],{windowsHide:true,stdio:['ignore','pipe','ignore'],env:{...process.env,PYTHONUTF8:'1'}});let output='';
    const timer=setTimeout(()=>{child.kill();resolve({available:false,error:'音频检测超时。'});},12000);
    child.stdout.on('data',data=>{output+=data;if(output.length>128000)child.kill();});
-   child.once('error',()=>{clearTimeout(timer);resolve({available:false,error:'Python 程序无法启动。'});});
+   child.once('error',()=>{clearTimeout(timer);resolve({available:false,error:'语音环境无法启动，请重新点击“一键准备语音环境”。'});});
    child.once('exit',code=>{clearTimeout(timer);try{const body=JSON.parse(output);resolve(code===0?body:{available:false,error:body.error??'音频依赖未就绪。'});}catch{resolve({available:false,error:'未检测到有效音频依赖。'});}});
   });
  }
  start(){
   if(this.child)throw fault('音频会话已在运行。',409);if(!this.accountReady()||!this.store.settings().ownerWxid)throw fault('请先连接微信并绑定主人。',409);if(!this.billing.configured())throw fault('实时对话需要绑定 DeepSeek API Key。');
-  const settings=validateAudio(this.settings());if(!fs.existsSync(settings.python)||!fs.existsSync(path.join(settings.modelPath,'am')))throw fault('Python 或 Vosk 模型目录不存在。');
+  const settings=validateAudio(this.settings()),python=this.pythonFor();if(!python)throw fault('请先点击“一键准备语音环境”。');if(!fs.existsSync(path.join(settings.modelPath,'am')))throw fault('Vosk 模型目录不存在，请选择已解压的中文模型。');
   const generation=++this.generation;this.owner=this.store.settings().ownerWxid;this.epoch=this.store.epoch();this.history=[];this.turns=0;this.usage={input:0,output:0};this.error=null;this.state='starting';this.startedAt=this.now();
-  const child=this.spawnImpl(settings.python,[this.worker],{windowsHide:true,stdio:['pipe','pipe','ignore'],env:{...process.env,PYTHONUTF8:'1'}});this.child=child;
+  const child=this.spawnImpl(python,[this.worker],{windowsHide:true,stdio:['pipe','pipe','ignore'],env:{...process.env,PYTHONUTF8:'1'}});this.child=child;
   child.stdin.on('error',()=>{});
   const lines=readline.createInterface({input:child.stdout});lines.on('line',line=>{if(line.length>8000)return;try{this.event(JSON.parse(line),generation);}catch{this.fail('音频进程返回无效数据。');}});
   child.once('error',()=>{if(this.generation===generation)this.fail('音频进程无法启动。');});

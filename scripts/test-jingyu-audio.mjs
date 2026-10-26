@@ -10,13 +10,16 @@ function fixture(t,fetchImpl){
   const child=new EventEmitter();child.stdout=new PassThrough();child.stdin=new PassThrough();child.sent=[];child.kill=()=>{child.killed=true;child.emit('exit',0);};
   child.stdin.on('data',chunk=>{const body=JSON.parse(chunk.toString());child.sent.push(body);if(body.type==='stop')queueMicrotask(()=>child.emit('exit',0));});children.push(child);return child;
  };
- const session=new AudioSession(store,billing,{root,spawnImpl,fetchImpl,memoryFor:()=> '主人可读的记忆'});session.save({python:process.execPath,modelPath:root,inputDevice:0,outputDevice:1,voiceName:'',model:'deepseek-flash',maxMinutes:1});
+ const session=new AudioSession(store,billing,{root,spawnImpl,fetchImpl,pythonFor:()=>process.execPath,memoryFor:()=> '主人可读的记忆'});session.save({modelPath:root,inputDevice:0,outputDevice:1,voiceName:'',model:'deepseek-flash',maxMinutes:1});
  t.after(()=>{session.stop();fs.rmSync(root,{recursive:true,force:true});});return {session,store,children};
 }
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 
 test('audio settings require explicit devices, bounded duration and absolute executables',()=>{
  assert.throws(()=>validateAudio({python:'python',maxMinutes:99}));
+});
+test('legacy interpreter paths are ignored and cannot be submitted through audio settings',t=>{
+ const f=fixture(t);f.store.set('audioSettings',{...f.session.settings(),python:'C:\\untrusted\\python.exe'});assert.equal(f.session.settings().python,undefined);assert.throws(()=>f.session.save({...f.session.settings(),python:process.execPath}));
 });
 test('audio loop uses a bounded text model request, keeps keys in host and records actual usage',async t=>{
  let request;const f=fixture(t,async(url,options)=>{request={url,options};return new Response(JSON.stringify({choices:[{message:{content:'主人，小鲸鱼在听。'}}],usage:{prompt_tokens:18,completion_tokens:7}}));});

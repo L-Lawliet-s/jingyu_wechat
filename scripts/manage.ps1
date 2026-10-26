@@ -184,7 +184,8 @@ $hookSender = $config.runtime.sender -eq 'wechat-hook'
 if ($Action -eq 'prepare') { exit 0 }
 if ($Action -eq 'status') { Show-Status $config; exit 0 }
 if ($Action -eq 'restart') { Stop-Services }
-$python = (Get-Command $config.runtime.python -ErrorAction Stop).Source
+$python = (& $node (Join-Path $PSScriptRoot 'prepare-python.mjs') --resolve).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $python) { throw 'PYTHON_RUNTIME_NOT_READY' }
 $weflowRoot = Join-Path $root 'components\WeFlowComplete'
 $electron = Join-Path $weflowRoot 'node_modules\electron\dist\electron.exe'
 $externalWeFlow = $config.runtime.weflowMode -eq 'existing'

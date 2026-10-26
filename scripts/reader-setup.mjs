@@ -1,8 +1,11 @@
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import {findPython} from '../packages/jingyu/python-runtime.mjs';
 
 // Credentials travel over stdin and the private result channel, never argv or job logs.
 export function runReaderSetup({ root, python, request, onProgress = () => {} }) {
+  python=findPython(root,'reader')?.executable??(typeof python==='string'&&path.isAbsolute(python)?python:null);
+  if(!python)return Promise.reject(new Error('READER_RUNTIME_MISSING'));
   return new Promise((resolve, reject) => {
     const child = spawn(python, ['-B', path.join(root, 'scripts', 'reader_setup.py')], {
       cwd: root, windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'],
@@ -47,8 +50,8 @@ export const readerSetupMessages = {
   READER_KEY_REQUIRED: '尚未获取读取密钥。请点击“一键连接并验证”，然后在微信中完成登录。',
   READER_SECRET_UNAVAILABLE: '旧凭据无法在当前 Windows 用户下读取。请点击“一键连接并验证”重新获取。',
   READER_DATABASE_UNREADABLE: '密钥验证通过，但数据库暂时无法完整读取。请等待微信同步完成后重试；若仍失败，请使用“验证内置环境”检查安装文件。',
-  READER_DEPENDENCY_MISSING: '读取组件不完整或无法加载。请重新安装更新后的安装包，再使用“验证内置环境”检查。',
-  READER_RUNTIME_MISSING: '找不到内置 Python 运行环境。请重新安装更新后的安装包。',
+  READER_DEPENDENCY_MISSING: '读取组件不完整或无法加载。请在首次配置点击“一键准备环境”自动修复。',
+  READER_RUNTIME_MISSING: '运行环境尚未准备。请在首次配置点击“一键准备环境”，无需安装或填写 Python 路径。',
   READER_KEY_COMPONENT_MISSING: '自动连接组件缺失或无法加载。请重新安装更新后的安装包；也可以在高级选项中手动填写密钥。',
   WECHAT_NOT_RUNNING: '匹配微信尚未打开。请点击“打开微信”，再点击“一键连接并验证”，随后在微信中完成登录。',
   WECHAT_MULTIPLE_PROCESSES: '检测到多个独立微信客户端。请从托盘退出多余客户端，保留要绑定的微信后重试。',

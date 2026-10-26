@@ -4,6 +4,8 @@
 
 开发仓库：[L-Lawliet-s/jingyu_wechat](https://github.com/L-Lawliet-s/jingyu_wechat)。本项目直接升级宿主源码，保留微信、DSH 与已有数据兼容性。
 
+**首次使用请看：[从零开始配置教程](docs/GETTING_STARTED.md)。** 微信读取和语音使用的 Python 均由软件自动检测、下载与配置，无需安装系统 Python、修改 PATH 或填写解释器路径。
+
 目标包括桌面和聊天余额查询、主人记忆单向共享、管理员任务、学习提醒，以及经过验证的拍一拍、语音和通话动作。
 
 升级顺序与验收边界见 [开发计划](docs/JINGYU_UPGRADE.md)。原版说明保存在 [上游使用说明](docs/UPSTREAM_README.md)。

@@ -1,4 +1,6 @@
-# 鲸鱼源码版配置与验收
+# 鲸鱼源码版配置与验收（功能参考）
+
+首次安装请先阅读 [从零开始配置教程](GETTING_STARTED.md)。Python 已由软件自动管理，不再要求用户安装系统 Python、运行 pip 或填写解释器路径。
 
 本版开发目录：`D:\code\jingyu_wechat`。现有运行版：`D:\code\jingyu_runtime`。两者独立；源码提交不包含你的账号、API Key、聊天或原运行版的配置。
 
@@ -30,9 +32,9 @@ D:\code\jingyu_wechat\WeChatAgent.exe
 
 ```powershell
 Set-Location D:\code\jingyu_wechat
-npm ci
-npm --prefix packages/dsh-social-bridge-plugin ci
-npm run desktop:build
+npm.cmd ci
+npm.cmd run setup
+npm.cmd run desktop:build
 ```
 
 其余微信读取、Hook、DSH 和桥接依赖按首次配置页面及原版安装步骤准备；已有运行版的第三方组件并没有自动复制到新目录。完整安装步骤见 `docs/UPSTREAM_README.md` 和 `docs/WECHAT_HOOK.md`。
@@ -88,23 +90,11 @@ npm run desktop:build
 
 当前实现只测试“听懂 → 回答 → 发声”，不会自行拨号，不会打开摄像头，也不会发送微信语音消息。当前仅使用主人身份的会话及允许给主人读取的记忆。通话期间对其他联系人匹配身份属于后续阶段。
 
-本机已创建独立环境并安装 Vosk 与 sounddevice：
+先点击“一键准备语音环境”，软件自动检测并安装解释器与 Vosk、sounddevice 等依赖。无需手动配置 Python。准备完成后点击“检测设备”，查看输入设备、输出设备和 Windows 声音。
 
-```text
-D:\code\jingyu_wechat\state\audio-venv\Scripts\python.exe
-```
+从 [Vosk 官方模型列表](https://alphacephei.com/vosk/models)下载中文模型，解压至方便的位置。在页面填写包含 `am`、`conf`、`graph` 等子目录的实际模型目录，不能填写 ZIP 路径。模型不随环境准备自动下载。
 
-自行安装的步骤如下；只建立项目独立环境：
-
-```powershell
-Set-Location D:\code\jingyu_wechat
-py -3.13 -m venv state/audio-venv
-& .\state\audio-venv\Scripts\python.exe -m pip install -r packages/jingyu/audio-requirements.txt
-```
-
-从 [Vosk 官方模型列表](https://alphacephei.com/vosk/models)下载中文小模型，解压至 `state/audio-models/`。在页面填写包含 `am`、`conf`、`graph` 等子目录的实际模型目录，不能填写 ZIP 路径。模型尚未随本版下载或打包。
-
-在语音区域填写上述 Python 完整路径，点击“检测设备”，会列出输入设备、输出设备和可用 Windows 声音。选择实际设备编号，填写模型目录，保存后点击“开始采集并对话”。建议先用耳机和普通麦克风测试，避免扬声器回授。默认五分钟、最多二十轮；随时可点“立即停止”。
+选择实际设备编号，填写模型目录，保存后点击“开始采集并对话”。建议先用耳机和普通麦克风测试，避免扬声器回授。默认五分钟、最多二十轮；随时可点“立即停止”。
 
 音频识别与合成在本机进行；识别出的文字、当前人格和有限上下文发给 DeepSeek API。默认 `deepseek-flash`、关闭思考、输出上限 200 tokens；模型名仍需以账户实际可用为准，见 [官方模型文档](https://api-docs.deepseek.com/quick_start/pricing/)。本版语音对话保留最近四组问答，停止后清空内存记录，不写长期聊天档案。
 

@@ -8,7 +8,9 @@ import { buildIcons, embedExecutableIcon } from './build-icons.mjs';
 const root = projectRoot;
 const runtime = path.join(root, 'node_modules/electron/dist');
 if (!fs.existsSync(path.join(runtime,'electron.exe'))) throw new Error('未找到已有 Electron 运行环境，请先在源码目录安装开发依赖。');
-const output = path.join(root, 'release', 'WeChatAgent');
+// Verification can run while the user's normal desktop instance stays open.
+const verification = process.argv.includes('--verify');
+const output = path.join(root, 'release', verification ? 'WeChatAgent-verify' : 'WeChatAgent');
 const appDir = path.join(output, 'resources', 'app');
 fs.mkdirSync(appDir, { recursive: true });
 function copy(source, destination) {
@@ -28,7 +30,7 @@ const sharp = require('sharp');
 const iconFile = await buildIcons(root, appDir, sharp);
 embedExecutableIcon(path.join(output, 'WeChatAgent.exe'), iconFile, require('resedit'));
 const compiler = path.join(process.env.WINDIR ?? 'C:/Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
-const launcher = path.join(root, 'WeChatAgent.exe');
+const launcher = verification ? path.join(root, 'release', 'WeChatAgent-verify-launcher.exe') : path.join(root, 'WeChatAgent.exe');
 const built = spawnSync(compiler, ['/nologo', '/target:winexe', '/optimize+', `/out:${launcher}`, `/win32icon:${iconFile}`, '/reference:System.Windows.Forms.dll', path.join(root, 'apps/console-desktop/launcher.cs')], { encoding: 'utf8', windowsHide: true });
 if (built.status !== 0) throw new Error('Desktop launcher compilation failed: ' + (built.stdout || built.stderr));
 fs.copyFileSync(path.join(root, 'LICENSE'), path.join(output, 'WECHATAGENT-LICENSE.txt'));

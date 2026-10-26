@@ -11,5 +11,6 @@ test('native Jingyu routes require the console token and render memory settings 
  const settings=await post('/api/jingyu/settings',{ownerWxid:'wxid_fixture_owner',sharedMemoryEnabled:true,allowGroupShared:false});assert.equal(settings.status,200);assert.equal((await settings.json()).keyConfigured,false);
  const response=await post('/api/jingyu/memories',{text:'蓝鲸计划',scope:'owner_shared',status:'published'});assert.equal(response.status,200);
  const data=await fetch(base+'/api/jingyu',{headers}).then(r=>r.json());assert.equal(data.memories[0].text,'蓝鲸计划');assert.equal(data.balance.configured,false);assert(!JSON.stringify(data).includes('apiKey'));
+ const runtimes=await fetch(base+'/api/python-runtime',{headers}).then(r=>r.json());assert.equal(runtimes.reader.ready,false);assert.equal(runtimes.audio.ready,false);assert.equal(data.audio.settings.python,undefined);assert.equal((await post('/api/jingyu/audio/probe',{python:process.execPath})).status,400);
  assert.equal((await fetch(base+'/jingyu.js')).status,200);assert.equal((await fetch(base+'/api/jingyu',{headers:{...headers,Origin:'https://untrusted.example'}})).status,403);
 });

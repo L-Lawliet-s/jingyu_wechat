@@ -3,15 +3,16 @@ import path from 'node:path';
 import {jingyuFor} from './service.mjs';
 import {actorChat,fault} from './store.mjs';
 import {StudyReminders} from './reminders.mjs';
+import {pythonStatus} from './python-runtime.mjs';
 
 export async function jingyuConsole(root,route,method,body={},options={}){
  const {store,billing,audio}=jingyuFor(root,options);
  const configFile=path.join(root,'config/wechatagent.json');const config=fs.existsSync(configFile)?JSON.parse(fs.readFileSync(configFile,'utf8').replace(/^\uFEFF/,'')):{};
  const chats=(config.wechat?.whitelist?.private??[]).map(id=>'wechat:private:'+id),reminders=new StudyReminders(store);
- if(route==='/api/jingyu'&&method==='GET')return {settings:store.settings(),keyConfigured:billing.configured(),memories:store.listMemories(),reminders:reminders.list(),chats,epoch:store.epoch(),balance:await billing.balance(),audio:{settings:audio.settings(),status:audio.status()},capabilities:{memory:true,billing:true,audio:'manual-test',pat:false,voiceMessage:false,voiceCall:false,videoCall:false}};
+ if(route==='/api/jingyu'&&method==='GET')return {settings:store.settings(),keyConfigured:billing.configured(),memories:store.listMemories(),reminders:reminders.list(),chats,epoch:store.epoch(),balance:await billing.balance(),audio:{settings:audio.settings(),status:audio.status(),runtime:pythonStatus(root,'audio')},capabilities:{memory:true,billing:true,audio:'manual-test',pat:false,voiceMessage:false,voiceCall:false,videoCall:false}};
  if(route==='/api/jingyu/audio/settings'&&method==='POST')return {ok:true,settings:audio.save(body)};
  if(route==='/api/jingyu/audio/status'&&method==='GET')return audio.status();
- if(route==='/api/jingyu/audio/probe'&&method==='POST')return audio.probe(body.python);
+ if(route==='/api/jingyu/audio/probe'&&method==='POST'){if(Object.hasOwn(body,'python'))throw fault('运行环境由软件自动管理，无需提交程序路径。');return audio.probe();}
  if(route==='/api/jingyu/audio/start'&&method==='POST')return audio.start();
  if(route==='/api/jingyu/audio/stop'&&method==='POST')return audio.stop();
  if(route==='/api/jingyu/reminders'&&method==='POST'){if(!store.settings().ownerWxid)throw fault('请先绑定主人微信 ID。');if(!chats.includes(body.chat))throw fault('请先把接收人加入允许的私聊范围。');return {ok:true,reminder:reminders.save(body)};}

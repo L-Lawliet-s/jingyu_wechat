@@ -57,6 +57,8 @@ const actions = {
   stop: ['停止服务', '停止本项目管理的服务，控制台会继续保持打开。'],
   restart: ['重启并应用', '正在重新读取设置并重启本项目服务。'],
   prepare: ['准备配置', '生成连接配置与插件设置。'],
+  'python-prepare': ['准备运行环境','自动检测或下载读取环境，无需安装 Python 或填写路径；首次准备需要联网。'],
+  'audio-prepare': ['准备语音环境','自动检测或下载本地语音环境，完成后选择音频设备即可。'],
   setup: ['安装依赖', '按现有锁文件安装依赖，需要联网，可能耗时几分钟。'],
   'wechat-open': ['打开匹配微信', '校验现有客户端和发送组件，然后打开微信。'],
   'dsh-open': ['打开 DSH', '打开模型程序，在 DSH 中登录并启用本项目插件。'],
@@ -390,12 +392,16 @@ async function copyPluginPath(button) {
     else toast('插件目录尚未加载，请刷新页面后重试。');
   } finally { button.disabled = false; }
 }
+function pythonRuntimeCard(){
+  const runtime=state.pythonRuntime?.reader;
+  return `<section class="card">${header('运行环境','由软件自动管理，无需安装或选择 Python。','','check')}<p class="modal-description">${escapeHtml(runtime?.message??'点击下面按钮，软件会自动检测并准备微信读取环境。')}</p><button class="button" data-action="python-prepare">一键准备环境</button></section>`;
+}
 function connectionsPage() {
   const r = state.reader;
   state.readerDraft ??= { dbPath: r?.dbPath ?? '', myWxid: r?.myWxid ?? '', decryptKey: '' };
   return `<div class="section-stack"><section class="card">${header('模型连接', '使用你已在 DSH 中配置的模型。', '', 'plug')}<div class="form-grid">${field('DSH 程序位置', 'runtime.dshDesktop', { full: true, browse: 'exe', placeholder: '选择 DeepSeek Harness.exe', help: '启动时若 DSH 尚未打开，会尝试打开这个程序。' })}${field('模型提供方标识', 'dsh.provider', { help: '与 DSH 中的 provider 标识一致。' })}${field('模型标识', 'dsh.model', { help: '图片理解需要当前模型支持图片输入。' })}</div>${pluginPathField()}<div class="notice plain">${icon('info')}<span>修改模型后：保存设置 → 在诊断页准备配置 → 从托盘完全退出并重新打开 DSH → 重启服务。</span></div></section>
-    <section class="card">${header('微信与读取程序', '选择本机已准备的程序。', '', 'chat')}<div class="form-grid">${field('匹配微信程序位置', 'hook.wechatExecutable', { full: true, browse: 'exe', help: '当前发送后端固定匹配 4.1.10.27。选择程序不会改变兼容版本。' })}${field('Python 程序位置', 'runtime.python', { full: true, browse: 'exe', help: '选择已有环境的 python.exe，也可填写可用的 Python 命令。' })}</div></section>
-    ${readerConfigurationCard()}
+    <section class="card">${header('微信与读取程序', '选择匹配微信；读取环境由软件自动管理。', '', 'chat')}<div class="form-grid">${field('匹配微信程序位置', 'hook.wechatExecutable', { full: true, browse: 'exe', help: '当前发送后端固定匹配 4.1.10.27。选择程序不会改变兼容版本。' })}</div></section>
+    ${pythonRuntimeCard()}${readerConfigurationCard()}
     <section class="card">${header('高级连接选项', '通常无需修改。端口需要互不重复。', '', 'sliders')}<details><summary>展开端口与发送超时设置</summary><div class="form-grid">${field('读取服务端口', 'ports.weflow', { type: 'number', min: 1024, max: 65535 })}${field('消息桥接端口', 'ports.onebot', { type: 'number', min: 1024, max: 65535 })}${field('适配器状态端口', 'ports.adapter', { type: 'number', min: 1024, max: 65535 })}${field('DSH 插件端口', 'ports.dshPlugin', { type: 'number', min: 1024, max: 65535 })}${field('发送后端地址', 'hook.baseUrl', { full: true, help: '必须为本机回环 HTTP 地址，例如 http://127.0.0.1:30001。' })}${field('发送请求超时 / 秒', 'hook.requestTimeoutMs', { type: 'number', transform: 'seconds', min: 1, max: 5, step: .1 })}${field('回执等待超时 / 秒', 'hook.receiptTimeoutMs', { type: 'number', transform: 'seconds', min: 1, max: 18, step: .1 })}${field('并发发送上限', 'hook.maxConcurrentSends', { type: 'number', min: 1, max: 4, step: 1 })}</div></details></section></div>`;
 }
 function toolsPage() {
@@ -403,9 +409,9 @@ function toolsPage() {
   return `<div class="tool-grid"><section class="card">${header('发送组件', '', '', 'tool')}${row('构建原生发送组件', '需已有匹配源码和 C++ 构建工具。', 'hook-build', '构建')}</section><section class="card">${header('客户端维护', '', '', 'shield')}${row('开启客户端写保护', '只作用于项目 state/hook 下的客户端目录。', 'hook-pin', '开启')}${row('解除客户端写保护', '恢复原有目录权限；不修改版本适配。', 'hook-unpin', '解除')}<p class="subtle space-top">目录保护不保证旧版微信持续可登录。</p></section><section class="card">${header('依赖维护','通常只供开发环境使用。','','tool')}${row('安装项目依赖','使用原安装脚本检查或安装依赖。','setup','安装')}</section></div>`;
 }
 function setupPage() {
-  return `<div class="section-stack"><div class="notice plain">${icon('shield')}<span>此安装包使用独立的本机数据目录。账号、读取凭据和允许的聊天需要由你配置，初始允许的聊天为空。</span></div><p class="subtle"><a class="text-link" href="https://github.com/sourcepro5/WeChatAgent" target="_blank" rel="noopener noreferrer">觉得好用去GitHub上点个star吧 ${icon('arrow')}</a></p><div class="tool-grid setup-grid">
-    <section class="card">${header('检查运行环境', 'Node.js、Python 和读取依赖均已内置。', '', 'check')}<p class="modal-description">不需要安装开发工具或系统 Python。可先检查安装文件是否完整。</p><button class="button" data-action="setup">验证内置环境</button></section>
-    <section class="card">${header('登录匹配微信', '使用安装包准备的独立匹配客户端。', '', 'chat')}<p class="modal-description">打开微信并登录自己的账号，等待消息同步。目前发送组件适配 4.1.10.27；如果微信要求升级，请保留提示并检查兼容性。</p><button class="button" data-action="wechat-open">打开微信</button> <button class="button" data-repair-wechat>修复微信连接…</button></section>
+  return `<div class="section-stack"><div class="notice plain">${icon('shield')}<span>程序使用独立的本机数据目录。账号、读取凭据和允许的聊天需要由你配置，初始允许的聊天为空。</span></div><p class="subtle"><a class="text-link" href="https://github.com/L-Lawliet-s/jingyu_wechat" target="_blank" rel="noopener noreferrer">觉得好用去GitHub上点个star吧 ${icon('arrow')}</a></p><div class="tool-grid setup-grid">
+    ${pythonRuntimeCard()}
+    <section class="card">${header('登录匹配微信', '使用已准备的 4.1.10.27 客户端；源码版需先准备对应组件。', '', 'chat')}<p class="modal-description">打开微信并登录自己的账号，等待消息同步。目前发送组件适配 4.1.10.27；如果微信要求升级，请保留提示并检查兼容性。</p><button class="button" data-action="wechat-open">打开微信</button> <button class="button" data-repair-wechat>修复微信连接…</button></section>
     ${dshInstallCard({header,field,pluginPathField})}
     </div>${readerConfigurationCard()}<section class="card">${header('启动并选择允许的聊天', '数据库显示“已验证”并完成模型连接后，启动服务。', '', 'power')}<p class="modal-description">启动后，在“允许的聊天”搜索自己的好友或群聊。添加后保存并重启，助手只会处理允许的聊天。</p><div class="button-row"><button class="button primary" data-action="start">启动服务</button><a class="button" href="#chats">选择允许的聊天</a><a class="button" href="#overview">查看连接状态</a></div></section></div>`;
 }
@@ -526,6 +532,10 @@ async function pollJob() {
       } else if (state.job.state === 'failed') state.readerError = state.job.message;
       if (state.page==='setup'||state.page==='settings'&&state.settingsSection==='connections') await renderPage();
     }
+    if (state.job?.state==='succeeded' && ['python-prepare','audio-prepare','setup'].includes(state.job.action)) {
+      state.pythonRuntime=await api('/api/python-runtime');
+      const updated=await api('/api/config'),keepDraft=hasDraft(),draft=state.draft;state.config=updated.config;state.revision=updated.revision;state.draft=keepDraft?{...draft,runtime:{...draft.runtime,python:updated.config.runtime.python}}:structuredClone(updated.config);updateDraftUI();await renderPage();
+    }
     await refreshStatus();
     if ($('#job-panel').hidden && state.job && !state.job.accountSwitched) toast((actions[state.job.action]?.[0] ?? '操作') + (state.job.state === 'succeeded' ? '已完成。' : '未完成，点击右上角操作记录查看原因。'));
     if (state.job?.state === 'succeeded' && state.page === 'chats') await renderPage();
@@ -587,8 +597,8 @@ async function persistReader(autoKey = true) {
 }
 async function load() {
   const info = await fetch('/api/info').then(response => response.json()); state.token = info.token; state.root = info.root;
-  const [config, roles, chats, deployment] = await Promise.all([api('/api/config'), api('/api/roles'), api('/api/chats'), api('/api/deployment').catch(() => ({installed:false}))]);
-  state.deployment = deployment;
+  const [config, roles, chats, deployment, pythonRuntime] = await Promise.all([api('/api/config'), api('/api/roles'), api('/api/chats'), api('/api/deployment').catch(() => ({installed:false})), api('/api/python-runtime')]);
+  state.deployment = deployment;state.pythonRuntime=pythonRuntime;
   state.config = config.config; state.draft = structuredClone(config.config); state.revision = config.revision; state.roles = roles.roles; personaCategoryUI.setData(roles.categories);
   for (const chat of chats.chats) state.names.set(chat.key, chat.name);
   selectRoute(location.hash);

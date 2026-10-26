@@ -1,5 +1,6 @@
 import {jingyuConsole} from '../packages/jingyu/console.mjs';
 import {closeJingyu} from '../packages/jingyu/service.mjs';
+import {pythonStatus,findPython} from '../packages/jingyu/python-runtime.mjs';
 import {feedbackSnapshot,saveFeedback} from '../packages/dsh-social-bridge-plugin/assistant-feedback.mjs';
 import {createMemoryConsole} from './memory-console.mjs';
 import {fishNotebookSnapshot} from './fish-notebook-console.mjs';
@@ -54,7 +55,7 @@ export function validateConsoleConfig(config, root) {
       [/matching|version/, '发送组件需要匹配版本 4.1.10.27 的微信程序。'],
       [/persona/, '人格名称不能包含路径、点号前缀或无效字符。'],
       [/OneBot IDs/, '聊天 ID 必须是有效的正整数。'],
-      [/nicknames|Python/, '请填写 Python 程序位置与至少一个账号昵称。'],
+      [/nicknames|Python/, '请填写账号昵称，并在首次配置中点击“一键准备环境”。'],
       [/provider|model/, '请填写有效的模型提供方与模型标识。'],
       [/wake_mode/, '请选择自然参与或唤醒后回复。'],
       [/sticker/, '表情发送与标签缓存必须使用开关值，聊天覆盖设置需要有效聊天 ID。'],
@@ -232,6 +233,8 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
     const ps = (file, ...args) => ({ exe: windowsPowerShellExecutable(), args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'scripts', 'console-powershell.ps1'), '-ScriptPath', path.join(root, 'scripts', file), '-ArgumentsBase64', Buffer.from(JSON.stringify(args), 'utf8').toString('base64')] });
     const node = (file, ...args) => ({ exe: nodeExecutable, args: [path.join(root, 'scripts', file), ...args] });
     if (['start', 'stop', 'restart', 'prepare'].includes(action)) return ps('manage.ps1', action);
+    if (action === 'python-prepare') return node('prepare-python.mjs','--configure');
+    if (action === 'audio-prepare') return node('prepare-python.mjs','--audio');
     if (action === 'setup') return ps(fs.existsSync(path.join(root, 'config', 'distribution.json')) ? 'check-runtime.ps1' : 'setup.ps1');
     if (action === 'dsh-open') return ps('launch-dsh.ps1');
     if (action === 'wechat-open') return ps('launch-hook-wechat.ps1', ...(fs.existsSync(path.join(root,'state/hook/native/build.previous.json')) ? ['-UpdateHook'] : []));
@@ -239,7 +242,7 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
     if (action === 'hook-pin') return ps('pin-hook-client.ps1');
     if (action === 'hook-unpin') return ps('pin-hook-client.ps1', '-Unlock');
     if (action === 'hook-check') return node('hook-onebot.mjs', '--check');
-    if (action === 'reader-check') return { exe: snapshot().config.runtime.python, args: ['-B', path.join(root, 'scripts', 'reader-api.py'), '--check'] };
+    if (action === 'reader-check') {const python=findPython(root,'reader')?.executable;if(!python)throw fault('请先在首次配置点击“一键准备环境”，无需填写 Python 路径。');return {exe:python,args:['-B',path.join(root,'scripts','reader-api.py'),'--check']};}
     if (['sessions-configure', 'sessions-compact'].includes(action)) {
       const key = body.conversationKey;
       const config = snapshot().config;
@@ -280,7 +283,7 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
     const checkRevision = readerRevision();
     const initialConfigRevision = snapshot().revision;
     const spec = connectRequest ? {} : command(body.action, body);
-    spec.timeoutMs = ['setup', 'hook-build', 'hook-test'].includes(body.action) ? 1200000 : ['start', 'restart'].includes(body.action) ? 180000 : 150000;
+    spec.timeoutMs = ['setup', 'python-prepare', 'audio-prepare', 'hook-build', 'hook-test'].includes(body.action) ? 1200000 : ['start', 'restart'].includes(body.action) ? 180000 : 150000;
     const id = crypto.randomUUID();
     const job = { id, action: body.action, state: 'running', startedAt: Date.now(), output: '', exitCode: null };
     jobs.set(id, job); activeJob = id; latestJob = id;
@@ -405,6 +408,7 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
       }
       if (req.method === 'GET' && route === '/api/info') return reply(200, { project: 'WeChatAgent Console', root, version: 1, token: csrf });
       if (req.headers['x-console-token'] !== csrf) throw fault('控制台连接已更新，请刷新页面。', 401);
+      if(req.method==='GET'&&route==='/api/python-runtime')return reply(200,{reader:pythonStatus(root,'reader'),audio:pythonStatus(root,'audio')});
       if(route.startsWith('/api/jingyu'))return reply(200,await jingyuConsole(root,route,req.method,req.method==='GET'?{}:await readBody(req)));
       if(req.method==='GET'&&route==='/api/updates')return reply(200,await updates.check());
       if(req.method==='GET'&&route==='/api/assistant-feedback')return reply(200,feedbackSnapshot(root));

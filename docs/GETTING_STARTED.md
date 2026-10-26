@@ -1,0 +1,223 @@
+# 鲸鱼：从零开始配置教程
+
+适用 Windows 10/11 **x64**，项目仓库：[L-Lawliet-s/jingyu_wechat](https://github.com/L-Lawliet-s/jingyu_wechat)。以下以 `D:\code\jingyu_wechat` 为例，其他目录也可以使用。
+
+**Python 已改成自动管理。** 界面里不用选择 `python.exe`，不用安装系统 Python，不用改 PATH，也不用运行 pip。微信读取环境点“一键准备环境”，语音环境点“一键准备语音环境”。软件会优先使用已内置或已准备的环境，缺失时下载独立环境、校验并验证依赖。
+
+本教程先让小号成功回复大号，再开启余额、记忆、提醒和语音测试。自动拍一拍、微信原生语音消息、自主电话、美团/淘宝下单、B站播放控制目前仍未完成。
+
+## 1. 先确认你拿到哪种版本
+
+| 你拿到的内容 | 从哪一步开始 |
+| --- | --- |
+| GitHub 克隆或“Download ZIP”得到的源码 | 按第 2–5 步准备源码运行条件 |
+| 已打包的鲸鱼桌面安装版，且包含对应微信组件 | 安装、启动后从第 6 步开始；无需 Git、Node.js 或 C++ 工具 |
+| 本机已经有 `D:\code\jingyu_wechat`，或有旧的 `jingyu_runtime` | 看第 13 步；不要重复克隆到已有目录 |
+
+**源码 ZIP 不包含解释器、微信客户端和第三方 DLL。** Python 能由程序自动补齐；匹配微信和原生发送组件仍需按下面步骤准备。上游 WeChatAgent 的安装包不包含本仓库新增的鲸鱼功能。
+
+## 2. 新电脑：准备源码所需工具
+
+只部署已有完整安装包时跳过本节。
+
+1. 安装 [Git for Windows](https://git-scm.com/download/win)。保持常规安装选项即可。
+2. 安装 [Node.js 官方 Windows x64 版本](https://nodejs.org/en/download)，使用 **22.x LTS，至少 22.13.0**。安装后关闭并重新打开 PowerShell。本仓库本机验证使用 Node 22。
+3. 若要自行编译原生发送组件，安装 [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)，选择“使用 C++ 的桌面开发”，包含 **MSVC v143** 与 Windows SDK。构建脚本明确使用 v143。
+4. 从 [DeepSeek 官方页面](https://www.deepseek.com/harness/)安装 Windows 64 位 DSH；登录模型账号的步骤可稍后做。
+5. 准备本项目匹配的微信 **4.1.10.27** 完整客户端。当前发送适配不能直接用于其他“最新版微信”。
+
+打开 PowerShell，分别检查：
+
+```powershell
+git --version
+node --version
+npm.cmd --version
+```
+
+这三项能显示版本后继续。后面的命令使用 `npm.cmd`，避免 PowerShell 将 `npm` 解析为受执行策略限制的脚本；不需要修改系统执行策略。
+
+## 3. 获取鲸鱼源码并准备环境
+
+如果目标文件夹不存在，执行：
+
+```powershell
+New-Item -ItemType Directory -Path D:\code -Force | Out-Null
+git clone https://github.com/L-Lawliet-s/jingyu_wechat.git D:\code\jingyu_wechat
+Set-Location D:\code\jingyu_wechat
+npm.cmd ci
+npm.cmd run setup
+npm.cmd run desktop:build
+```
+
+`npm.cmd run setup` 自动准备独立 Python 和读取依赖，并安装桥接插件依赖。等待出现“微信读取环境已就绪”和依赖安装完成提示。首次需要联网，网络失败时重新执行即可复用已校验的下载缓存；无需寻找 Python 路径。
+
+成功后会生成桌面入口：
+
+```text
+D:\code\jingyu_wechat\WeChatAgent.exe
+```
+
+这一刻只表示管理界面可以打开。继续准备微信发送和自动连接组件后，才能进行完整收发测试。
+
+如果使用 Download ZIP，请先解压，使 `package.json` 位于项目根目录，跳过 `git clone` 那一行，从 `Set-Location` 开始执行后续安装命令。ZIP 目录没有 Git 历史，不能直接使用第 13 步的 `git pull` 更新。
+
+## 4. 源码版：准备原生发送组件
+
+完整安装版已提供组件时跳过本节。源码副本保留了上游来源和适配覆盖层，第三方 Hook 需独立准备。
+
+在项目 PowerShell 中执行：
+
+```powershell
+Set-Location D:\code\jingyu_wechat
+git clone https://github.com/aixed/WeChat-Hook.git components/WeChat-Hook
+git -C components/WeChat-Hook checkout e905d07ade50d2c6472e4eb3bd4f3fe19cf662c6
+npm.cmd run hook:build
+```
+
+`components/WeChat-Hook` 已存在时不要重复克隆。用 `git -C components/WeChat-Hook rev-parse HEAD` 核对当前来源提交；不要把其他版本地址或 DLL 混入本次适配。
+
+成功应生成：
+
+```text
+state/hook/native/version.dll
+state/hook/native/build.json
+```
+
+将已经准备好的 **4.1.10.27 完整客户端程序目录**放在 `state/hook/wechat-4.1.10.27/`，保留其中全部文件和子目录，使 `state/hook/wechat-4.1.10.27/Weixin.exe` 存在。也可以稍后在“设置 → 连接”中选择实际匹配的 `Weixin.exe`。
+
+本仓库不提供微信客户端下载。没有匹配客户端时，先完成管理界面配置，准备客户端后再进行真实收发。详细发送组件说明见 [WECHAT_HOOK.md](WECHAT_HOOK.md)。
+
+## 5. 源码版：准备微信一键连接组件
+
+本步骤与 Python 无关，用于从你自己登录的微信获取并验证读取凭据。完整安装版已提供该文件时跳过。
+
+源码仓库不包含 `wx_key.dll`。以下下载地址固定到本项目采用的 [weflow-cli 来源提交](https://github.com/zhuobichen/weflow-cli/tree/3d56da9b91ab46f610ca811029e5782c528a58ec)：
+
+```powershell
+Set-Location D:\code\jingyu_wechat
+New-Item -ItemType Directory -Path components/weflow-cli/resources/key/win32/x64 -Force | Out-Null
+Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/zhuobichen/weflow-cli/3d56da9b91ab46f610ca811029e5782c528a58ec/resources/key/win32/x64/wx_key.dll' -OutFile components/weflow-cli/resources/key/win32/x64/wx_key.dll
+```
+
+下载失败就停在本步重试，不要将网页错误内容另存为 DLL。来源与许可记录见 [LICENSES.md](../LICENSES.md)。这些本地二进制由 Git 忽略，不会随源码提交。
+
+## 6. 打开鲸鱼，连接微信小号
+
+1. 双击 `D:\code\jingyu_wechat\WeChatAgent.exe`。
+2. 打开“首次配置”。点击 **一键准备环境**，等待显示运行环境已就绪。已经执行过源码 setup 或使用内置环境时，会自动检测并验证，不重复下载。
+3. 点击“打开微信”，登录小号，等待消息和联系人同步。
+4. 自动查找账号，选中当前小号；找不到时选择该账号对应的微信数据目录。
+5. 点击“一键连接并验证”。按界面提示完成登录或重新登录，等待数据库和实时微信账号核对完成。
+
+**完成标志：** 读取配置显示已验证，读取账号与当前登录小号一致。不能仅凭微信窗口已打开判断连接成功。
+
+如果显示“自动连接组件缺失”，回到第 5 步；如果显示“运行环境未准备”，再次点击一键准备环境。不要填写或搜索系统 Python。
+
+## 7. 连接 DeepSeek / DSH
+
+1. 在 DSH 登录模型账号，确认可以在 DSH 自己的窗口正常聊天。
+2. 在鲸鱼首次配置页面选择已安装的 DSH 程序，保存设置。
+3. 复制页面显示的**本机插件路径**。在 DSH 插件管理中添加并启用这个路径对应的插件。
+4. 如果 DSH 要求选择插件配置，使用当前新目录生成的配置，不要继续加载旧运行版路径。
+5. 从托盘完整退出 DSH，再重新打开。
+6. 在鲸鱼检查连接状态；修改模型提供方或模型标识后，先保存并准备配置，再完整重开 DSH、重启服务。
+
+源码插件验证 SDK 为 `0.2.0-rc.2`。具体页面流程见 [EXTERNAL_DSH.md](EXTERNAL_DSH.md)。
+
+**计费要分清：** DSH 账号登录额度与 DeepSeek API Key 余额不是同一个概念。鲸鱼页面保存的 Key 用于余额查询与语音测试，不会自动改写 DSH 的模型凭据。想让文本聊天也使用同一个 API 账户，需要在 DSH 的官方 API 提供方中配置对应 Key，并让鲸鱼中的提供方标识与 DSH 实际值一致。
+
+日常对话可先使用账户实际可用的 `deepseek-flash`；具体模型和价格以 [DeepSeek 官方说明](https://api-docs.deepseek.com/quick_start/pricing/)为准。本教程不承诺固定 token 价格。
+
+## 8. 只允许大号，验证第一条消息
+
+1. 在“聊天”添加你的大号，先不要添加其他好友或群。
+2. 设置该聊天为聊天模式，选择主人私聊人格，保存。
+3. 回到概览启动服务；界面提示需重启应用设置时，按提示执行。
+4. 用大号给小号发送：“你好，介绍一下自己。”
+5. 确认收到真实微信回复，再扩展其他能力。
+
+若无回复，依次检查：服务已启动 → 大号在允许范围 → 微信账号核对通过 → DSH 插件已连接 → 模型在 DSH 中能正常回答。诊断和日志位于“设置”。
+
+## 9. 配置人格、主人与 API 余额
+
+在“人格”页面新建或导入三份角色卡：主人私聊、其他用户私聊、群聊。保持同一个“小鲸鱼”身份，在聊天详情中为不同会话分别选择人格。只有主人私聊叫你“主人”；这个称呼本身不授予电脑操作或余额查询权限。
+
+在“鲸鱼账户与记忆”页面：
+
+1. 填入大号的**真实微信 ID**，与管理员设置中的 ID 一致；不要填昵称或备注。
+2. 填入自己的 DeepSeek API Key，保存设置。
+3. 点击刷新余额。查询失败会提示失败或显示旧数据，不会伪装为 0 元。
+4. 用大号私聊问：“小鲸鱼，API 账户还有多少钱？”
+
+Key 在本机以 Windows 当前用户加密保存，不要贴到群聊、截图、GitHub 或公开日志中。余额是这个 API 账户的余额，不是微信钱包、美团、淘宝或 DSH 登录额度。
+
+## 10. 配置共同记忆
+
+先在桌面新增一条测试记忆：“我们的学习计划叫蓝鲸计划。”选择“共享给其他已允许聊天”并发布。
+
+共享规则如下：
+
+| 对话对象 | 能读到 |
+| --- | --- |
+| 主人大号 | 主人的共享记忆与主人私有记忆 |
+| 联系人 A | 主人的已发布共享记忆与 A 自己的私有记忆 |
+| 联系人 B | 主人的已发布共享记忆与 B 自己的私有记忆 |
+| 群聊 | 默认不共享；只有你在桌面打开群聊共享后才提供主人共享项 |
+
+模型在聊天里提出的共享记忆会先进入“待确认”，你在桌面确认发布后才对别人可见。别人自称“主人”或引用你的话不能写主人记忆。
+
+测试通过后，添加其他联系人；给 A、B 各保存一条不同的私有测试信息，确认两人互相读不到。再删除一条共享项，确认后续请求换用新会话，不再带入已撤销内容。旧聊天档案和已发出的消息仍保留；撤销后自动恢复旧档案的保守处理见 [配置与验收说明](JINGYU_SETUP.md)。
+
+## 11. 配置约两小时学习提醒和电脑任务
+
+**学习提醒：** 在“鲸鱼账户与记忆 → 工作日学习提醒”选接收人，默认北京时间周一至周五 09:00–18:00。间隔填 120，随机延迟填 15，约 120–135 分钟一次。填写提醒文字，确认对方同意后添加。
+
+提醒直接使用保存的文字，不为每条提醒调用模型；停机错过的不补发。对方可说“停止学习提醒”，你也可以在桌面暂停或删除。
+
+**电脑任务：** 在“设置 → 助手”将大号真实 ID 加为管理员，再在该聊天详情切换助手模式，按需允许 DSH 工具和工作区。先测试“查看指定测试文件夹并整理清单”这类可核对的小任务。普通联系人仍使用聊天模式。操作路径见 [ASSISTANT_REMOTE.md](ASSISTANT_REMOTE.md)。
+
+美团/淘宝专用下单、B站播放控制不属于本版已完成能力，不要把打开链接当成已下单或已观看视频。
+
+## 12. 可选：本地语音测试
+
+1. 打开“鲸鱼账户与记忆 → 语音对话”。
+2. 点击 **一键准备语音环境**。解释器与 Vosk/sounddevice 等依赖由软件安装，不填写任何 Python 路径。
+3. 从 [Vosk 官方模型列表](https://alphacephei.com/vosk/models)下载中文模型，如 `vosk-model-small-cn-0.22`。解压到本机任意方便的位置，页面填写包含 `am`、`conf`、`graph` 的模型目录。模型不随 Python 准备自动下载。
+4. 点“检测设备”，根据列表选择输入、输出设备编号；默认中文 Windows 声音即可。
+5. 保存设置，建议戴耳机后点“开始采集并对话”，随时可点“立即停止”。
+
+语音识别与合成在本机进行；识别文字和有限上下文发给 DeepSeek API。默认五分钟、最多二十轮、每次输出上限 200 tokens。当前轮流听说，不支持打断正在发声的 AI。
+
+本节是本地测试，尚未自动拨号、接听微信电话或发送原生语音消息。微信电话还需要隔离收音和发声的两条音频路由、通话状态适配，见 [升级计划](JINGYU_UPGRADE.md)。
+
+## 13. 已有项目如何更新
+
+若已经有开发目录，先保存界面中的修改，并通过应用的“退出应用”完整关闭当前开发版，再执行下面命令。窗口右上角的“×”只收起到托盘；仍在运行会导致桌面文件被占用，无法覆盖构建。
+
+```powershell
+Set-Location D:\code\jingyu_wechat
+git pull --ff-only
+npm.cmd ci
+npm.cmd run setup
+npm.cmd run desktop:build
+```
+
+完成后重新打开**新目录**的桌面程序。微信读取和语音界面中已没有 Python 路径输入框；旧语音设置中的自定义解释器路径会被忽略，程序自动选择环境。
+
+你的旧版 `D:\code\jingyu_runtime` 可保留。真实收发测试前先停止旧版聊天服务，避免两个项目同时回复同一个小号或占用同一组端口。本教程没有要求覆盖旧账号、凭据或聊天数据。
+
+## 14. 常见问题
+
+| 现象 | 处理 |
+| --- | --- |
+| 页面还要求填写 Python 路径 | 当前打开的可能是旧运行版。退出后打开新开发目录的程序 |
+| 一键准备环境下载失败 | 检查网络后重试；缓存会复用，错误文件不安装，不需要手动配置系统环境 |
+| 提示已有准备任务 | 等当前任务完成；不要同时启动多个准备操作 |
+| 微信版本不匹配 | 使用 4.1.10.27；不能只修改配置版本号让其他版本生效 |
+| 自动连接组件缺失 | 源码版核对第 5 步；Python 下载成功不会自动提供微信 DLL |
+| DSH 已打开但未连接 | 核对插件属于新目录，并从托盘完整退出后重开 |
+| 页面有余额，聊天余额不一致 | 核对 DSH 和余额页是否使用同一个 API 账户；登录额度与 API 余额不共用 |
+| 没收到学习提醒 | 确认服务运行、接收人在允许范围、提醒已启用、当前处于工作日时段 |
+| 语音环境就绪，但无法对话 | 再检查中文模型目录、音频设备和 API Key；环境就绪不代表已接通微信电话 |
+
+完整功能状态、测试范围和剩余工作见 [验证记录](JINGYU_VERIFICATION.md) 与 [升级计划](JINGYU_UPGRADE.md)。
