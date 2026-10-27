@@ -2,12 +2,14 @@ import {JingyuStore,actorChat,validActor,fault} from './store.mjs';
 import {Billing} from './billing.mjs';
 import {activeReaderAccount} from '../../scripts/reader-account-state.mjs';
 import {AudioSession} from './audio-session.mjs';
+import {PlatformService} from './platform-service.mjs';
+import {CallSession} from './call-session.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {selectRoleText} from '../../components/qq-bridge/src/role-card.js';
 
 const instances=new Map();
-export function closeJingyu(root){for(const [key,service]of instances)if(key.startsWith(root+'\0')){service.audio.stop();service.store.close();instances.delete(key);}}
+export function closeJingyu(root){for(const [key,service]of instances)if(key.startsWith(root+'\0')){service.calls.close();service.audio.stop();service.store.close();instances.delete(key);}}
 export function jingyuFor(root,options={}){
   const account=options.account??activeReaderAccount(root).id;
   if(!account)throw fault('请先连接并验证微信账号，再使用鲸鱼功能。',409);
@@ -16,10 +18,11 @@ export function jingyuFor(root,options={}){
     const audio=new AudioSession(store,billing,{...options,root,accountReady:()=>activeReaderAccount(root).id===account,memoryFor:(chat,actor,query)=>memoryContext(store,chat,actor,query),personaFor:chat=>{
       const file=path.join(root,'config/wechatagent.json');const config=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'')):{};
       const name=config.persona?.chats?.[chat]??config.persona?.default;
-      if(typeof name!=='string'||/[\\/\0]/.test(name)||name.includes('..'))return '你是可爱温柔的小鲸鱼 AI，称呼对方主人。';
-      const role=path.join(root,'roles',name+'.md');return fs.existsSync(role)?selectRoleText(fs.readFileSync(role,'utf8'),'v2'):'你是可爱温柔的小鲸鱼 AI，称呼对方主人。';
-    }});instances.set(key,{store,billing,audio});
-  }return instances.get(key);
+      const fallback='你是可爱温柔的小鲸鱼 AI。'+(chat===actorChat(store.settings().ownerWxid)?'称呼对方主人。':'与联系人自然交流，不把普通联系人叫主人。');
+      if(typeof name!=='string'||/[\\/\0]/.test(name)||name.includes('..'))return fallback;
+      const role=path.join(root,'roles',name+'.md');return fs.existsSync(role)?selectRoleText(fs.readFileSync(role,'utf8'),'v2'):fallback;
+    }});instances.set(key,{store,billing,audio,calls:new CallSession(store,audio,{...options,root}),platforms:new PlatformService(store,options)});
+  }const service=instances.get(key);if(options.browser)service.platforms.browser=options.browser;return service;
 }
 export function verifiedPrivateActor(chat,actor){return validActor(actor)&&actorChat(actor)===chat?actor:'';}
 export function memoryContext(store,chat,actor,query){

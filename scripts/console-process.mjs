@@ -50,6 +50,7 @@ export function taskFailureMessage(output, code) {
   if (/PYTHON_RUNTIME_NOT_READY|Automatic runtime preparation failed/.test(output)) return '运行环境尚未就绪，请在首次配置点击“一键准备环境”重试，无需安装或填写 Python 路径。';
   if (/DSH_NOT_CONFIGURED/.test(output)) return '请先在“首次配置”点击“下载安装 DSH”，安装后选择 DSH 程序位置并保存设置。';
   if (/DSH_PLUGIN_NOT_READY/.test(output)) return 'DSH 插件尚未就绪，请在 DSH 添加并启用本机插件，再从托盘完整退出并重新打开 DSH。';
+  if (/DSH_PLUGIN_RESTART_REQUIRED/.test(output)) return 'DSH 仍在运行更新前的插件。请先保存 DSH 中的内容，从托盘完整退出并重新打开，再启动鲸鱼服务。';
   const port=/\bport=(\d{1,5})\b/.exec(output)?.[1],portLabel=port?'端口 '+port:'配置端口';
   if (/ADAPTER_PORT_IN_USE|SERVICE_PORT_IN_USE|SERVICE_PORT_OWNER_MISMATCH/.test(output)) return portLabel+' 已被其他进程占用或绑定。点击“检查占用进程”，核对路径和 PID，经再次确认后处理；也可在连接设置中修改端口。';
   if (/ADAPTER_PORT_DENIED|SERVICE_PORT_DENIED/.test(output)) return 'Windows 拒绝绑定'+portLabel+'，可能涉及系统保留端口或访问限制。请在连接设置中更换该端口再重试；没有监听进程也可能无法使用。';

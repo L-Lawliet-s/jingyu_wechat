@@ -12,6 +12,7 @@ export function dshConfigurationMatches(root, config, health) {
   const patch = path.join(root, 'packages/dsh-social-bridge-plugin/cordis.patch.yml');
   const revision = fs.existsSync(patch) ? /wechatagent=([a-f0-9]{16})/.exec(fs.readFileSync(patch, 'utf8'))?.[1] : '';
   if (revision && health.pluginRevision !== revision) return false;
+  if(revision&&Number.isFinite(health.processStartedAt)&&health.processStartedAt<fs.statSync(patch).mtimeMs-1000)return false;
   const accountFile = path.join(root, 'state/weflow/active-account.json');
   if (fs.existsSync(accountFile)) {
     const account = JSON.parse(fs.readFileSync(accountFile, 'utf8').replace(/^\uFEFF/, ''));

@@ -25,8 +25,8 @@ export function syncConversationMemory(store,history,{root,allowedChats}={}){
     // Later batches advance from a durable cursor; a backlog is caught up on
     // subsequent requests without loading every chat's entire archive.
     const records=cursor===undefined
-      ?history.db.prepare('SELECT seq,body,at,source FROM records WHERE chat=? AND at>=? ORDER BY seq DESC LIMIT 200').all(chat,since).reverse()
-      :history.db.prepare('SELECT seq,body,at,source FROM records WHERE chat=? AND seq>? AND at>=? ORDER BY seq LIMIT 200').all(chat,cursor,since);
+      ?history.db.prepare('SELECT seq,body,at,source FROM records WHERE chat IN (?,?) AND at>=? ORDER BY seq DESC LIMIT 200').all(chat,chat+':assistant-chat',since).reverse()
+      :history.db.prepare('SELECT seq,body,at,source FROM records WHERE chat IN (?,?) AND seq>? AND at>=? ORDER BY seq LIMIT 200').all(chat,chat+':assistant-chat',cursor,since);
     if(!records.length)continue;
     store.transaction(()=>{
       const insert=store.db.prepare('INSERT OR IGNORE INTO conversation_memories(id,binding,chat,person,text,at,record,shareable) VALUES(?,?,?,?,?,?,?,?)');
@@ -79,6 +79,6 @@ export function searchConversationMemory(store,{chat,actor,query='',limit=6,pers
 
 export function conversationQuery(history,chat,ids,fallback=''){
   if(!Array.isArray(ids)||!ids.length)return fallback.slice(-300);
-  const rows=history.db.prepare("SELECT text FROM records WHERE chat=? AND json_extract(body,'$.id') IN ("+ids.map(()=>'?').join(',')+") ORDER BY seq").all(chat,...ids);
+  const rows=history.db.prepare("SELECT text FROM records WHERE chat IN (?,?) AND json_extract(body,'$.id') IN ("+ids.map(()=>'?').join(',')+") ORDER BY seq").all(chat,chat+':assistant-chat',...ids);
   return (rows.map(row=>row.text).join('\n')||fallback).slice(-300);
 }

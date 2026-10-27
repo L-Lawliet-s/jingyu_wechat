@@ -17,8 +17,26 @@ def emit(value):
     print(json.dumps(value, ensure_ascii=False), flush=True)
 
 
-def render_speech(text, voice, filename):
+def render_speech(text, voice, filename, settings=None):
     """Render a local WAV without playing or sending it anywhere."""
+    if settings and settings.get("tts") == "edge":
+        import asyncio
+        import edge_tts
+        import imageio_ffmpeg
+        mp3 = filename + ".mp3"
+        async def synthesize():
+            await edge_tts.Communicate(text[:500], voice or "zh-CN-XiaoyiNeural",
+                                       rate=settings.get("rate", "+5%"), pitch=settings.get("pitch", "+25Hz")).save(mp3)
+        try:
+            asyncio.run(asyncio.wait_for(synthesize(), timeout=18))
+            subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-nostdin", "-y", "-i", mp3,
+                            "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", filename],
+                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=10, creationflags=0x08000000)
+        finally:
+            if os.path.exists(mp3):
+                os.remove(mp3)
+        return
     ps = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32",
                       "WindowsPowerShell", "v1.0", "powershell.exe")
     # Values go through stdin JSON, never interpolated as PowerShell code.
@@ -44,6 +62,12 @@ def render_speech(text, voice, filename):
 
 
 def main():
+    if "--sample" in sys.argv:
+        request = json.loads(sys.stdin.readline())
+        render_speech(request.get("text", "主人，小鲸鱼在这里，今天也要好好休息呀。"),
+                      request["settings"]["voiceName"], request["file"], request["settings"])
+        emit({"ok": True})
+        return 0
     try:
         import sounddevice as sd
         from vosk import Model, KaldiRecognizer, SetLogLevel
@@ -113,7 +137,7 @@ def main():
                     command = None
                 if command:
                     filename = os.path.join(directory, "reply.wav")
-                    render_speech(command["text"], config["voiceName"], filename)
+                    render_speech(command["text"], config["voiceName"], filename, config)
                     with wave.open(filename, "rb") as wav:
                         if wav.getsampwidth() != 2:
                             raise RuntimeError("Unsupported SAPI format")

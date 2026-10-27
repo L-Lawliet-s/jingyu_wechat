@@ -32,3 +32,13 @@
 Weather forecasts are fetched from [Open-Meteo](https://open-meteo.com/) and locations from its GeoNames-backed geocoding API. Data is provided under [CC BY 4.0](https://open-meteo.com/en/licence); source attribution is retained in the model evidence and links. The default public API is for personal/non-commercial use and subject to [Open-Meteo terms and request limits](https://open-meteo.com/en/terms). Commercial use requires a suitable provider subscription or a separately operated service. No provider source code is bundled.
 
 网页正文提取使用 [htmlparser2 10.0.0](https://github.com/fb55/htmlparser2/tree/v10.0.0)（MIT）；锁文件固定依赖，安装包保留 htmlparser2、entities、domhandler、domutils 等各自的 LICENSE。网页工具的网络地址校验复用 MIT Bridge 的 safe-fetch 逻辑，来源许可见 `components/qq-bridge/LICENSE`。仅使用本机 DNS 解析；代理返回 Fake-IP 时按非公开地址拒绝，不向额外 DNS 服务发送网页域名。
+
+## 2026-10-27：B站、接听与声音复用
+
+- [Alterssss/dsh-bili-whale](https://github.com/Alterssss/dsh-bili-whale)，MIT，固定参考提交 `8b0009f8ce2ebdc421afcb2e727b19ac18912ec6`。`packages/jingyu/vendor/bili-whale-read.mjs` 改编其 WBI 签名与评论投影纯函数；保留版权和 `bili-whale-LICENSE.txt`。移除了上游 CLI、用户主目录读写、主动分享、私信、评论发布和轮询，账户登录状态只保留在本项目浏览器会话。
+- [jiatj/wechatapi](https://github.com/jiatj/wechatapi)，Apache-2.0，固定提交 `04ef8cbde3862cff90b5f6b42c9ebfcea44ef48d`。复用 `uia_driver.py` 为 `packages/jingyu/vendor/wechat_uia.py`，唯一上游文件修改是把日志导入替换为标准 logging，原许可见 `wechatapi-LICENSE.txt`。宿主包装层只使用项目客户端的辅助功能与 UIA 控件，不调用上游自动登录、客户端启动或主动拨号路径。接听适配与身份、状态核验由本项目新增模块实现。
+- [rany2/edge-tts](https://github.com/rany2/edge-tts)，运行依赖锁定 `7.3.1`；其主体为 LGPL-3.0，`srt_composer.py` 为 MIT。通过独立、可替换的 Python 安装包调用，未将其实现复制为本项目 MIT 源码。许可文字保存在 `edge-tts-LICENSE.txt` 与 `edge-tts-GPL-3.0.txt`；分发独立运行环境时须保留包内版权、许可及对应源码获取方式。
+- 中文识别模型 `vosk-model-small-cn-0.22` 来自 [Vosk 官方模型页](https://alphacephei.com/vosk/models)，Apache-2.0。源码仅保存下载地址和 SHA256，不分发模型二进制。
+- 新增运行依赖 uiautomation、comtypes、pywin32、aiohttp 和 imageio-ffmpeg 各自许可随其独立安装包保留。imageio-ffmpeg 中的 FFmpeg 二进制另受其构建许可约束。
+
+研究过 `juntaochi/meituan-cli`，本次抓取未见明确许可文件或 package license，未复制其源码；外卖页面操作复用已存在的 Electron/Chromium，适配层由本项目实现。`HaonanYu123/JD-Taobao-MCP`（MIT）作为可见浏览器操作的参考，本次未复制其代码。Voicemeeter Banana 为独立的 VB-Audio 软件，不是本项目源码或开源依赖，安装、许可和音频驱动由用户另行决定。

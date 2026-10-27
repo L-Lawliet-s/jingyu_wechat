@@ -8,6 +8,8 @@ export const PYTHON_VERSION='3.13.16';
 export const PYTHON_ARCHIVE={name:`python-${PYTHON_VERSION}-embed-amd64.zip`,sha256:'97dae5274cc54867065e8d5a3226e48c35017ed332a0fdb0e27d5b5821961297'};
 export const READER_PACKAGES=[['sqlcipher3','0.6.2'],['cryptography','50.0.2'],['zstandard','0.25.0'],['pycryptodome','3.23.0'],['Pillow','12.3.0'],['imageio-ffmpeg','0.6.0'],['cffi','2.0.0'],['pycparser','2.23']];
 export const AUDIO_PACKAGES=[['vosk','0.3.45'],['sounddevice','0.5.3'],['cffi','2.0.0'],['pycparser','2.23'],['requests','2.34.2'],['urllib3','2.8.0'],['charset-normalizer','3.5.2'],['idna','3.20'],['certifi','2026.10.23'],['tqdm','4.70.1'],['colorama','0.4.6'],['websockets','17.3'],['srt','3.5.3']];
+// Optional speech and UI drivers share the automatically managed audio runtime.
+AUDIO_PACKAGES.push(['edge-tts','7.3.1'],['aiohttp','3.14.5'],['aiohappyeyeballs','2.7.1'],['aiosignal','1.4.0'],['attrs','26.1.0'],['frozenlist','1.8.0'],['multidict','7.2.1'],['propcache','0.5.4'],['yarl','1.25.1'],['typing-extensions','4.16.0'],['tabulate','0.10.0'],['uiautomation','2.0.29'],['comtypes','1.4.17'],['pywin32','312'],['imageio-ffmpeg','0.6.0']);
 const digest=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
 const read=(file,fallback=null)=>{try{return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));}catch{return fallback;}};
 const problem=message=>Object.assign(new Error(message),{status:503});
@@ -53,7 +55,7 @@ async function command(exe,args,{input='',timeout=30000}={}){
  });
 }
 export async function probePython(executable,purpose='reader'){
- const code=purpose==='reader'?'import sqlcipher3,cryptography,zstandard,Crypto,PIL,imageio_ffmpeg; from sqlcipher3 import dbapi2; db=dbapi2.connect(":memory:"); assert db.execute("select 1").fetchone()==(1,)':'import vosk,sounddevice,requests,srt,tqdm,websockets';
+ const code=purpose==='reader'?'import sqlcipher3,cryptography,zstandard,Crypto,PIL,imageio_ffmpeg; from sqlcipher3 import dbapi2; db=dbapi2.connect(":memory:"); assert db.execute("select 1").fetchone()==(1,)':'import vosk,sounddevice,requests,srt,tqdm,websockets,edge_tts,imageio_ffmpeg,uiautomation,win32gui';
  const output=await command(executable,['-I','-B','-c',`import sys; assert sys.version_info[:2] == (3,13); ${code}; print("JINGYU_RUNTIME_READY")`]);
  if(!output.includes('JINGYU_RUNTIME_READY'))throw problem('自动环境检查未通过。');
 }
@@ -84,7 +86,7 @@ async function fetchJson(url,fetchImpl){const response=await fetchImpl(url,{sign
 export async function downloadVerified(url,file,sha256,{fetchImpl=fetch}={}){
  if(!/^[a-f0-9]{64}$/.test(sha256))throw problem('下载文件缺少完整校验信息。');
  if(fs.existsSync(file)&&digest(fs.readFileSync(file))===sha256)return;
- const parsed=new URL(url);if(parsed.protocol!=='https:'||!['www.python.org','files.pythonhosted.org'].includes(parsed.hostname))throw problem('下载来源无效。');
+ const parsed=new URL(url);if(parsed.protocol!=='https:'||!['www.python.org','files.pythonhosted.org','alphacephei.com'].includes(parsed.hostname))throw problem('下载来源无效。');
  const urls=[url];if(parsed.hostname==='files.pythonhosted.org')urls.push('https://pypi.tuna.tsinghua.edu.cn'+parsed.pathname);
  for(const candidate of urls){
   try{
@@ -109,7 +111,7 @@ export async function buildPython(root,target,purpose='reader',{fetchImpl=fetch,
   if(name==='srt')unpackSrt(fs.readFileSync(cached),site);else await extract(cached,site);
   locked.push({name,version,filename:file.filename,sha256:file.digests.sha256,url:file.url});
  }
- fs.writeFileSync(path.join(target,'python313._pth'),'python313.zip\n.\nLib/site-packages\nimport site\n');fs.writeFileSync(path.join(target,'DEPENDENCIES.json'),JSON.stringify(locked,null,2));
+ fs.writeFileSync(path.join(target,'python313._pth'),'python313.zip\n.\nLib/site-packages\n'+(purpose==='audio'?'Lib/site-packages/win32\nLib/site-packages/win32/lib\nLib/site-packages/pywin32_system32\n':'')+'import site\n');fs.writeFileSync(path.join(target,'DEPENDENCIES.json'),JSON.stringify(locked,null,2));
  onProgress('正在验证运行环境…');await probe(path.join(target,'python.exe'),purpose);fs.writeFileSync(path.join(target,'READY.json'),JSON.stringify({purpose,version:PYTHON_VERSION,revision}));return path.join(target,'python.exe');
 }
 

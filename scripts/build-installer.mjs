@@ -43,7 +43,7 @@ function addTree(relative, allow) {
   for (const name of fs.readdirSync(path.join(project, relative), { recursive: true })) if (fs.statSync(path.join(project, relative, name)).isFile()) files.push((relative + '/' + name).replaceAll('\\', '/'));
 }
 
-for (const name of ['package.json','main.cjs','preload.cjs','shutdown.cjs','storage-location.cjs', 'desktop-policy.cjs','deployment.cjs','appearance.cjs', 'loading-preload.cjs','loading.html','loading.css','loading.js']) copyFile(path.join(root, 'apps/console-desktop', name), path.join(appDir, name));
+for (const name of ['package.json','main.cjs','preload.cjs','shutdown.cjs','storage-location.cjs', 'desktop-policy.cjs','deployment.cjs','appearance.cjs','platform-browser.cjs', 'loading-preload.cjs','loading.html','loading.css','loading.js']) copyFile(path.join(root, 'apps/console-desktop', name), path.join(appDir, name));
 fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ name: 'wechatagent', productName: 'WeChatAgent', version, description: 'WeChatAgent desktop console', main: 'main.cjs', author: 'WeChatAgent contributors', license: 'SEE THIRD-PARTY-NOTICES.txt' }, null, 2));
 await buildIcons(root, appDir, require('sharp'));
 for (const name of ['LICENSE','LICENSES.md']) add(name);

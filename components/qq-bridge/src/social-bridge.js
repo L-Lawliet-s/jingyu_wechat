@@ -46,7 +46,7 @@ const historyArchive={backfill:(...args)=>historyStore.backfill(...args),append:
 const buffer = new MessageBuffer(path.resolve(root, config.message_buffer?.path ?? 'state/social-messages.json'),
   { maxPerChat: config.message_buffer?.max_messages_per_chat ?? 300,archive:historyArchive });
 const plugin = new DshPluginClient({...config.dsh_plugin,feedback:new AssistantFeedback({root:path.resolve(config.project_root??(config.search_policy_file?path.dirname(path.dirname(config.search_policy_file)):path.resolve(root,'../..')))})}, log);
-import {assistantSenderAllowed,assistantGroupChatAllowed,verifiedAssistantSender} from '../../../packages/dsh-social-bridge-plugin/assistant-policy.mjs';
+import {assistantSenderAllowed,assistantConversationChatAllowed,assistantTaskIntent,verifiedAssistantSender} from '../../../packages/dsh-social-bridge-plugin/assistant-policy.mjs';
 import {conversationMode,conversationWorkMode} from '../../../packages/dsh-social-bridge-plugin/conversation-policy.mjs';
 const workModeFor=key=>conversationWorkMode(config.search_policy_file?JSON.parse(fs.readFileSync(config.search_policy_file,'utf8').replace(/^\uFEFF/,'' )).wechat:wechat,key);
 const modeFor=key=>conversationMode(config.search_policy_file?JSON.parse(fs.readFileSync(config.search_policy_file,'utf8').replace(/^\uFEFF/,'' )).wechat:wechat,key);
@@ -91,7 +91,7 @@ const memberArchive={backfill:(...args)=>memberHistory.backfill(...args),append:
 }};
 const memberBuffer=new MessageBuffer(path.join(historyRoot,'state/accounts',historyAccount.id||historyAccount.legacyId||'legacy','assistant-group-chat.json'),{maxPerChat:buffer.maxPerChat,archive:memberArchive});
 const memberConnection=new DshConnectionGuard({buffer:memberBuffer,probe:()=>plugin.connectionHealth({projectRoot:historyRoot,accountScope:historyAccount.id}),log});
-const memberEngine=engine.createGroupChat({buffer:memberBuffer,connection:memberConnection,assistantAccess:(key,message)=>conversationWorkMode(memberSettings(),key)==='assistant'&&assistantGroupChatAllowed(memberSettings(),key,verifiedAssistantSender(message))});
+const memberEngine=engine.createGroupChat({buffer:memberBuffer,connection:memberConnection,assistantAccess:(key,message)=>conversationWorkMode(memberSettings(),key)==='assistant'&&assistantConversationChatAllowed(memberSettings(),key,verifiedAssistantSender(message))});
 const proactive=new ProactiveEngine({stateFile:path.resolve(config.proactive_state_file??path.join(root,'state/proactive/state.json')),
   buffer,social:engine,settingsFor:()=>config.proactive_policy_file?JSON.parse(fs.readFileSync(config.proactive_policy_file,'utf8').replace(/^\uFEFF/,'')):{wechat},
   personaFor,decide:(key,prompt,metadata)=>plugin.followup(key,prompt,metadata),
@@ -115,7 +115,7 @@ adapter.onMessage(async (message) => {
     if(buffer.findIncoming(message)||memberBuffer.findIncoming(message)||message.kind==='group'&&engine.workModeFor(key)==='assistant'&&engine.assistantAllowed(key,message)&&memberHistory.hasIncoming(key,message)){
       log('[WeChat] '+key+' duplicate_routed_input_ignored');return;
     }
-    if(message.kind==='group'&&engine.workModeFor(key)==='assistant'&&(!engine.assistantAllowed(key,message)||assistantChatRequest(message,wechat.wake_words??[]))){
+    if(engine.workModeFor(key)==='assistant'&&(!engine.assistantAllowed(key,message)||assistantChatRequest(message,wechat.wake_words??[])||!message.files?.length&&!assistantTaskIntent(message.text))){
       await memberConnection.check({force:true});memberEngine.receive({...message,assistant_chat_only:true});
     }else{await connection.check({force:true});engine.receive(message);}
   } catch (error) { log(`[Social] inbound error=${error?.message ?? error}`); }

@@ -41,3 +41,7 @@ test('audio stops before forwarding new speech when the memory epoch changes',as
 test('failed model calls stop audio and return no invented transcript or billing value',async t=>{
  const f=fixture(t,async()=>new Response('',{status:401}));f.session.start();const child=f.children[0];child.stdout.write('{"type":"ready"}\n');child.stdout.write('{"type":"transcript","text":"test"}\n');await settle();assert.equal(f.session.status().state,'error');assert(!child.sent.some(x=>x.type==='speak'));assert.equal(f.session.status().usage.output,0);
 });
+
+test('voice playback keeps the role response but strips chat transport and sticker markers',async t=>{
+ const f=fixture(t,async()=>new Response(JSON.stringify({choices:[{message:{content:'RESPOND: **主人，小鲸鱼在呢。** [STICKER:S1]'}}]})));f.session.start();const child=f.children[0];child.stdout.write('{"type":"ready"}\n');child.stdout.write('{"type":"transcript","text":"你好"}\n');await settle();assert.equal(child.sent.at(-1).text,'主人，小鲸鱼在呢。');assert(!JSON.stringify(child.sent).includes('RESPOND:'));
+});

@@ -261,6 +261,17 @@ test('ordinary Jingyu chat recalls owner and contact conversations with asymmetr
  query='近况';person='主人';const after=await r.request('/followup',{...info,conversationKey:actorChat(b),pluginSender:b,message:'再聊点别的'});assert.notEqual(after.sessionId,before.sessionId);assert(!r.calls.model.at(-1).includes('我在写论文'));assert.deepEqual(evidence.memories,[]);
 });
 
+test('different role cards share permitted facts and private companion chat still replies without task tools',async t=>{
+ const f=await fixture(t),account='b'.repeat(64),owner='wxid_card_owner',contact='wxid_card_contact';const {JingyuStore,actorChat}=await import('../packages/jingyu/store.mjs');
+ fs.mkdirSync(path.join(f.dir,'state/weflow'),{recursive:true});fs.writeFileSync(path.join(f.dir,'state/weflow/active-account.json'),JSON.stringify({id:account,legacyId:account}));fs.mkdirSync(path.join(f.dir,'config'),{recursive:true});
+ const key=actorChat(contact),roleA='外人角色卡：你是可爱的小鲸鱼，使用朋友称呼。',roleB='主人角色卡：你是傲娇小女仆，称呼主人。';f.setPersona(key,'外人卡',roleA);f.setPersona(actorChat(owner),'主人卡',roleB);
+ const w={whitelist:{private:[key.split(':')[2],actorChat(owner).split(':')[2]],groups:[]},workModes:{[key]:'assistant'},assistant:{administrators:[]}};fs.writeFileSync(path.join(f.dir,'config/wechatagent.json'),JSON.stringify({wechat:w}));
+ const store=new JingyuStore(f.dir,account);store.saveSettings({ownerWxid:owner,sharedMemoryEnabled:true,allowGroupShared:false});store.saveMemory({chat:actorChat(owner),actor:owner,text:'主人最近在写论文',scope:'owner_shared',desktop:true});store.close();
+ const r=await f.start({assistantMessages:[[{type:'text',text:'RESPOND: 在呢，小鲸鱼陪你。'}]]}),body={conversationKey:key,persona:roleA,personaName:'外人卡',pluginSender:contact,assistantSender:contact,message:'你好呀，主人在忙什么'};
+ const result=await r.request('/assistant-chat',body);assert(result.text.includes('在呢'));assert(r.calls.model.at(-1).includes(roleA));assert(r.calls.model.at(-1).includes('主人最近在写论文'));assert(!r.calls.model.at(-1).includes(roleB));
+ const nextRole='新外人卡：温柔的小鲸鱼。';f.setPersona(key,'新外人卡',nextRole);await r.request('/assistant-chat',{...body,persona:nextRole,personaName:'新外人卡',message:'换卡后还记得主人最近忙什么吗'});assert(r.calls.model.at(-1).includes(nextRole));assert(r.calls.model.at(-1).includes('主人最近在写论文'));
+});
+
 test('Jingyu native chat filters shared context, exposes scoped tools and rotates after shared revocation',async t=>{
  const f=await fixture(t),account='b'.repeat(64),owner='wxid_fixture_owner',contact='wxid_fixture_contact';
  const {JingyuStore,actorChat}=await import('../packages/jingyu/store.mjs');
@@ -292,6 +303,7 @@ async function fixture(t) {
   fs.copyFileSync('packages/dsh-social-bridge-plugin/native-context.mjs',path.join(pluginDir,'native-context.mjs'));
   fs.mkdirSync(path.join(dir,'scripts'),{recursive:true});
   fs.copyFileSync('scripts/reader-account-state.mjs',path.join(dir,'scripts/reader-account-state.mjs'));
+  fs.copyFileSync('scripts/wechat-account-check.mjs',path.join(dir,'scripts/wechat-account-check.mjs'));
   fs.copyFileSync('packages/dsh-social-bridge-plugin/image-input.mjs',path.join(pluginDir,'image-input.mjs'));
   fs.copyFileSync('packages/dsh-social-bridge-plugin/deadline.mjs',path.join(pluginDir,'deadline.mjs'));
   fs.copyFileSync('packages/dsh-social-bridge-plugin/local-policy.mjs',path.join(pluginDir,'local-policy.mjs'));

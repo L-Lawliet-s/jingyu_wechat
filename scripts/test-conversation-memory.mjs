@@ -30,6 +30,11 @@ test('ordinary conversations satisfy thesis and rice examples without memory com
   const ctx=memoryContext(f.store,actorChat(owner),owner,'小张吃了什么');assert(ctx.includes('小张'));assert(ctx.includes('我今天吃了米饭'));assert(ctx.includes('time'));assert(ctx.includes('旧近况'));
 });
 
+test('companion role chat enters the same identity-scoped memory while task logs remain excluded',t=>{
+ const f=fixture(t),row=f.append(owner,'我在写论文').row;f.history.append(actorChat(owner)+':assistant-chat',{...row,id:'companion-paper'});f.history.append(actorChat(a)+':assistant',{...row,id:'task-command',conversation_id:actorChat(a).split(':')[2],sender_id:actorChat(a).split(':')[2],text:'任务工作区的内部文件路径'});f.sync();
+ assert(f.recall(b).some(item=>item.text==='我在写论文'));assert(!f.recall(owner).some(item=>item.text.includes('内部文件路径')));
+});
+
 test('owner can read contact manual notes while contacts and groups remain isolated',t=>{
   const f=fixture(t);f.store.saveMemory({chat:actorChat(a),actor:a,text:'小张考试约定'});assert(f.recall(owner).some(row=>row.text==='小张考试约定'));assert.equal(f.recall(b).length,0);
   f.append(owner,'我在写论文');f.sync();assert.equal(f.store.searchMemory({chat:actorChat(owner),actor:b}).length,0);assert.equal(f.store.searchMemory({chat:'wechat:group:456',actor:owner}).length,0);

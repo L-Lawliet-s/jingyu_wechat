@@ -231,6 +231,9 @@ try {
         if ($health.accountScope -ne $accountIdentity.id) { throw 'ACCOUNT_SWITCH_REQUIRES_DSH_RESTART: Fully exit DSH from the tray and reopen it after switching account.' }
     }
     if ($health.ok -ne $true -or $health.project -ne 'WeChatAgent' -or [IO.Path]::GetFullPath($health.projectRoot) -ne [IO.Path]::GetFullPath($root)) { throw 'Install the DSH plugin from this project packages directory, then fully reopen DSH.' }
+    $pluginPatch=Join-Path $root 'packages\dsh-social-bridge-plugin\cordis.patch.yml'
+    $pluginRevision=[regex]::Match((Get-Content -LiteralPath $pluginPatch -Raw),'wechatagent=([a-f0-9]{16})').Groups[1].Value
+    if ($pluginRevision -and ($health.pluginRevision -ne $pluginRevision -or ($null -ne $health.processStartedAt -and [double]$health.processStartedAt -lt ([DateTimeOffset](Get-Item -LiteralPath $pluginPatch).LastWriteTimeUtc).ToUnixTimeMilliseconds()-1000))) { throw 'DSH_PLUGIN_RESTART_REQUIRED: Fully exit DSH from its tray and reopen it to load this project update.' }
     if ($health.contextMode -ne 'native-session-v1') { throw 'Fully exit DSH from the tray and reopen it to load the native-session plugin.' }
     if ($health.behaviorPolicy -ne 'local-config-only-v1') { throw 'Fully reopen DSH to load the local-only behavior policy before starting WeChatAgent.' }
     if ($ntReader -and $health.imageInput -ne 'native-attachment-v1') { throw 'Fully exit DSH from the tray and reopen it to load the image attachment plugin.' }

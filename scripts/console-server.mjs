@@ -91,7 +91,7 @@ export function validateConsoleConfig(config, root) {
 }
 
 import {allowedConversation,validateConversationSettings,conversationWorkMode} from '../packages/dsh-social-bridge-plugin/conversation-policy.mjs';
-export function createConsole({ root = projectRoot, port = 3210, runner, readerSetup = runReaderSetup, accountVerifier = verifyWeChatAccount, componentSetup=prepareWeChatComponents, fetchImpl = fetch, nodeExecutable = process.execPath, filePicker, onQuit, processProbe, processStop } = {}) {
+export function createConsole({ root = projectRoot, port = 3210, runner, readerSetup = runReaderSetup, accountVerifier = verifyWeChatAccount, componentSetup=prepareWeChatComponents, fetchImpl = fetch, nodeExecutable = process.execPath, filePicker, onQuit, processProbe, processStop, platformBrowser } = {}) {
   const updates=createUpdateChecker({root,fetchImpl});
   const publicDir = path.join(projectRoot, 'public', 'console');
   const pluginInstaller=new PluginInstaller(root);
@@ -211,7 +211,7 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
       const readerState = value(0), adapter = value(2), health = value(3);
       const matchesDsh=dshConfigurationMatches(root,snapshot().config,health);
       if(optionalJson(preferenceFile).dshRestartRequired && matchesDsh)atomic(preferenceFile,{...optionalJson(preferenceFile),dshRestartRequired:false});
-      const dshReady = health?.ok === true && health.project === 'WeChatAgent' && sameProjectPath(health.projectRoot,root) && health.contextMode === 'native-session-v1' && health.behaviorPolicy === 'local-config-only-v1' && health.imageInput === 'native-attachment-v1' && (!optionalJson(preferenceFile).dshRestartRequired || matchesDsh);
+      const dshReady = health?.ok === true && health.project === 'WeChatAgent' && sameProjectPath(health.projectRoot,root) && health.contextMode === 'native-session-v1' && health.behaviorPolicy === 'local-config-only-v1' && health.imageInput === 'native-attachment-v1' && matchesDsh;
       const readerReady = !!readerState && !!value(1) && !readerState.lastError;
       const bridgeReady = !!value(4) && adapter?.ob_connected === true;
       const hookReady = adapter?.hook_connected === true && adapter?.hook_account_verified === true && adapter?.version === config.hook.expectedVersion;
@@ -393,6 +393,7 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
       const route = url.pathname;
       if (req.method === 'GET' && route === '/jingyu.js') return reply(200, fs.readFileSync(path.join(publicDir,'jingyu.js')), 'text/javascript; charset=utf-8');
       if (req.method === 'GET' && route === '/jingyu-audio.js') return reply(200, fs.readFileSync(path.join(publicDir,'jingyu-audio.js')), 'text/javascript; charset=utf-8');
+      if (req.method === 'GET' && ['/jingyu-platforms.js','/jingyu-calls.js'].includes(route)) return reply(200, fs.readFileSync(path.join(publicDir,route.slice(1))), 'text/javascript; charset=utf-8');
       if (req.method === 'GET' && !route.startsWith('/api/')) {
         if(route==='/plugin-api.md'){res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8','Content-Disposition':'attachment; filename="WeChatAgent-plugin-api-v2.md"','X-Content-Type-Options':'nosniff'});res.end(fs.readFileSync(path.join(projectRoot,'docs/PLUGIN_DEVELOPMENT.md')));return;}
         if(route==='/plugin-example.zip'){const example=path.join(projectRoot,'examples/plugins/chat-notes');inspectPackage(example);res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="chat-notes-1.0.0.zip"','X-Content-Type-Options':'nosniff'});res.end(packZip(packageFiles(example)));return;}
@@ -423,7 +424,7 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
       if (req.headers['x-console-token'] !== csrf) throw fault('控制台连接已更新，请刷新页面。', 401);
       if(req.method==='GET'&&route==='/api/python-runtime')return reply(200,{reader:pythonStatus(root,'reader'),audio:pythonStatus(root,'audio')});
       if(req.method==='GET'&&route==='/api/wechat-components')return reply(200,wechatComponentsStatus(root));
-      if(route.startsWith('/api/jingyu'))return reply(200,await jingyuConsole(root,route,req.method,req.method==='GET'?{}:await readBody(req)));
+      if(route.startsWith('/api/jingyu'))return reply(200,await jingyuConsole(root,route,req.method,req.method==='GET'?{}:await readBody(req),{browser:platformBrowser}));
       if(req.method==='GET'&&route==='/api/updates')return reply(200,await updates.check());
       if(req.method==='GET'&&route==='/api/assistant-feedback')return reply(200,feedbackSnapshot(root));
       if(req.method==='GET'&&route==='/api/memory')return reply(200,memoryView.overview());

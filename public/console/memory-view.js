@@ -1,7 +1,7 @@
 export function createMemoryUI({api,state,escapeHtml:esc,icon,renderPage,toast,notebookPage=async()=>''}){
   let overview,selected='',query='',status='all',source='all',offset=0,section='',sequence=0,rows=[];
   const date=value=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'尚无记录';
-  const mode=value=>({'assistant':'助手任务','assistant-chat':'助手群聊','social':'聊天模式'})[value]??'聊天模式';
+  const mode=value=>({'assistant':'助手任务','assistant-chat':'助手聊天','social':'聊天模式'})[value]??'聊天模式';
   const name=chat=>state.names.get(chat.key)||(chat.kind==='groups'?'群聊':'好友')+' · '+chat.id.slice(-4);
   const pagination=data=>data.total>24?`<div class="memory-pagination"><span>第 ${Math.floor(offset/24)+1} / ${Math.ceil(data.total/24)} 页 · ${data.total} 条</span><div class="button-row"><button class="button" data-memory-page="-1" ${offset===0?'disabled':''}>上一页</button><button class="button" data-memory-page="1" ${offset+24>=data.total?'disabled':''}>下一页</button></div></div>`:'';
   const tags=member=>member.tags.length?member.tags.map(tag=>`<span class="memory-tag ${tag.status==='tentative'?'tentative':''}">${esc(tag.label)}<small>${tag.status==='tentative'?'待观察':'多次观察'} · ${tag.evidenceCount} 条证据</small></span>`).join(''):'<p class="subtle">尚未形成互动标签</p>';

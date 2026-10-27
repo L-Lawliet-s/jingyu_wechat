@@ -1,4 +1,5 @@
-const { app, BrowserWindow, Menu, Tray, nativeImage, dialog, ipcMain, screen, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, dialog, ipcMain, screen, shell, session } = require('electron');
+const {PlatformBrowser}=require('./platform-browser.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -97,7 +98,9 @@ else {
       const { prepare } = await import(pathToFileURL(path.join(root, 'scripts/project-config.mjs')).href);
       prepare(root);
     }
-    consoleApp = createConsole({ root, port: 0, nodeExecutable: runtimeNode,
+    const platformBrowser=new PlatformBrowser({BrowserWindow,session,root});
+    app.once('will-quit',()=>platformBrowser.close());
+    consoleApp = createConsole({ root, port: 0, nodeExecutable: runtimeNode,platformBrowser,
       onQuit: () => app.quit(),
       filePicker: async kind => {
         const result = await dialog.showOpenDialog(window, { title: kind === 'workspace' ? '选择工作区目录' : kind === 'folder' ? '选择微信数据库目录' : '选择程序', properties: ['folder','workspace'].includes(kind) ? ['openDirectory'] : ['openFile'], ...(kind === 'exe' ? { filters: [{ name: '程序', extensions: ['exe'] }] } : {}) });

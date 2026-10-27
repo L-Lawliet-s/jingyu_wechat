@@ -45,5 +45,7 @@ test('DSH restart verification requires the actual project, model, plugin revisi
   fs.writeFileSync(path.join(root,'state/weflow/active-account.json'),JSON.stringify({id:'account-a'}));
   const health={ok:true,project:'WeChatAgent',projectRoot:root,provider:'fixture',model:'fixture-model',pluginRevision:'aaaaaaaaaaaaaaaa',accountScope:'account-a'};
   assert(dshConfigurationMatches(root,config,health));
+  assert.equal(dshConfigurationMatches(root,config,{...health,processStartedAt:Date.now()-60000}),false,'hot-loading a new entry into an old DSH process is insufficient');
+  assert(dshConfigurationMatches(root,config,{...health,processStartedAt:Date.now()+1000}));
   for(const change of [{ok:false},{projectRoot:root+'-other'},{provider:'other'},{model:'old-model'},{pluginRevision:'bbbbbbbbbbbbbbbb'},{accountScope:'account-b'}])assert.equal(dshConfigurationMatches(root,config,{...health,...change}),false);
 });

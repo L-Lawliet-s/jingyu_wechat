@@ -27,6 +27,19 @@ export function assistantGroupChatAllowed(wechat,key,wxid='') {
   const match=/^wechat:group:([1-9]\d{0,15})$/.exec(key);
   return !!match&&Number.isSafeInteger(Number(match[1]))&&(wechat?.whitelist?.groups??[]).some(id=>String(id)===match[1])&&(wxid===''||validWechatIdentity(wxid));
 }
+export function assistantConversationChatAllowed(wechat,key,wxid=''){
+  if(groupKey(key))return assistantGroupChatAllowed(wechat,key,wxid);
+  validateAssistantSettings(wechat);
+  if(!validWechatIdentity(wxid))return false;
+  const id=String(Number(crypto.createHash('sha256').update(wxid).digest().readBigUInt64BE(0)%2147483647n+1n));
+  return key==='wechat:private:'+id&&(wechat?.whitelist?.private??[]).some(value=>String(value)===id);
+}
+// Routing may select a tool-free chat, but it can never grant task permission.
+export function assistantTaskIntent(text){
+  const value=String(text??'').trim();
+  if(/^(?:聊天|闲聊)[：:]/.test(value))return false;
+  return /^(?:任务|新任务|继续任务|取消任务|任务状态|任务列表|审批|允许|拒绝)[：:\s]?/.test(value)||/(?:帮我|替我|请你|给我|麻烦你|继续(?:执行|处理)|执行|运行|打开|关闭|下载|上传|安装|创建|修改|整理|删除|搜索|查询|查一下|查下|查查|总结|读取|看一下|看看|看个|播放|暂停|点(?:个|一份)?外卖|订餐|下单|购物车|打(?:个)?(?:语音|视频)|拨打|发起通话|提醒我)/.test(value)||/https?:\/\/|BV[0-9A-Za-z]{10}/.test(value);
+}
 // The authenticated reader supplies this identity. Never derive it from text,
 // a nickname, a quoted author or the model's claimed identity.
 export function verifiedAssistantSender(message) {

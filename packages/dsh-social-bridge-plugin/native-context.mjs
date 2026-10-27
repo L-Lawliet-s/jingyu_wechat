@@ -1,6 +1,7 @@
 import {jingyuFor,memoryContext,verifiedPrivateActor,closeJingyu} from '../jingyu/service.mjs';
 import {bindJingyu} from '../jingyu/dsh-tools.mjs';
 import {syncConversationMemory,conversationQuery} from '../jingyu/conversation-memory.mjs';
+import {bindPlatformTools} from '../jingyu/platform-tools.mjs';
 import {AssistantNotifications} from './assistant-notifications.mjs';
 import {apply as applyAssistantToolGuard} from './social-tool-restrict.mjs';
 import {AssistantTasks,ASSISTANT_CONTROLLER,liveTask,taskFault,assistantHelp,formatAssistantTask} from './assistant-tasks.mjs';
@@ -21,7 +22,7 @@ import { bindWebReader, createWebReaderTurn, webReaderInstructions, builtinWebRe
 import {bindDshAccess,dshCatalog,retireDshSkillHistory,readDshAccess} from './dsh-access.mjs';
 import {bindFileTools} from './file-tools.mjs';
 import {trackToolOrigins} from './plugin-catalog.mjs';
-import {ASSISTANT_ACCESS,assistantSenderAllowed,assistantGroupChatAllowed,assistantControlAllowed} from './assistant-policy.mjs';
+import {ASSISTANT_ACCESS,assistantSenderAllowed,assistantConversationChatAllowed,assistantControlAllowed} from './assistant-policy.mjs';
 import {conversationAccess,allowedConversation} from './conversation-policy.mjs';
 import {readWorkMode,createWorkModeSlots,scopeHistory,assistantChatInstructionsFor,ASSISTANT_PRESET,WORK_MODE_POLICY} from './work-modes.mjs';
 import {createSessionGroups,groupFault} from './session-groups.mjs';
@@ -121,7 +122,7 @@ export function apply(ctx, config={}) {
     if(!accountReady())throw Error('JINGYU_ACCOUNT_CHANGED');
     if(jingyuFor(root).store.epoch()!==profiles[key].jingyuEpoch)throw Error('JINGYU_MEMORY_CHANGED');
   };
-  const chatInputAllowed=(key,sender)=>readWorkMode(root,key)==='assistant'&&assistantGroupChatAllowed(JSON.parse(fs.readFileSync(path.join(root,'config/wechatagent.json'),'utf8')).wechat,key,sender??'');
+  const chatInputAllowed=(key,sender)=>readWorkMode(root,key)==='assistant'&&assistantConversationChatAllowed(JSON.parse(fs.readFileSync(path.join(root,'config/wechatagent.json'),'utf8')).wechat,key,sender??'');
   const acceptsInput=(key,sender)=>internalGroupChat?chatInputAllowed(key,sender):assistantSenderAllowed(JSON.parse(fs.readFileSync(path.join(root,'config/wechatagent.json'),'utf8')).wechat,key,sender);
   const chatCwd=internalGroupChat?path.join(root,'state/assistant-group-chat',loadedAccount.id||loadedAccount.legacyId||'legacy','workspace'):null;
   if(chatCwd)fs.mkdirSync(chatCwd,{recursive:true});
@@ -146,6 +147,7 @@ export function apply(ctx, config={}) {
   const memberMemoryBindings=new Map();
   const historyBindings=new Map();
   const jingyuBindings=new Map();
+  const platformBindings=new Map();
   const windowStates=new Map();
   const fixedPrefixBindings=new Map();
   const history=scopeHistory(new HistoryStore(root,loadedAccount.id||loadedAccount.legacyId),key=>profiles[key]?.workMode??'social',internalGroupChat?{fixedMode:'assistant-chat'}:{});
@@ -443,6 +445,7 @@ export function apply(ctx, config={}) {
     if(!dshBindings.has(sid))dshBindings.set(sid,bindDshAccess(agent.ctx,ctx,agent,root,key,()=>pending.get(sid)?.dshAccessTurn,{isAllowed:accountReady}));
     if(!memeBindings.has(sid))memeBindings.set(sid,bindMemeLibrary(agent.ctx,memeLibrary,root,key,()=>pending.get(sid)?.memeTurn,{isAllowed:accountReady}));
     if(!jingyuBindings.has(sid))jingyuBindings.set(sid,bindJingyu(agent.ctx,root,key,()=>pending.get(sid)?.jingyuTurn,accountReady,()=>syncConversationMemory(jingyuFor(root).store,history,{root})));
+    if(!platformBindings.has(sid))platformBindings.set(sid,bindPlatformTools(agent.ctx,root,key,()=>pending.get(sid)?.jingyuTurn,accountReady));
     if(!memberMemoryBindings.has(sid))memberMemoryBindings.set(sid,bindMemberMemory(agent.ctx,memberMemory,key,()=>pending.get(sid)?.memberMemoryTurn));
     if(!historyBindings.has(sid))historyBindings.set(sid,bindHistory(agent.ctx,history,root,key,()=>pending.get(sid)?.webReaderTurn,accountReady));
   }
@@ -545,7 +548,7 @@ export function apply(ctx, config={}) {
   }
   async function releaseHistoryAgent(sid){
     disposeFixedPrefix(sid);
-    for(const bindings of [jingyuBindings,historyBindings,webReaderBindings,modelSearchBindings,memeBindings,memberMemoryBindings,extensionBindings]){bindings.get(sid)?.();bindings.delete(sid);}
+    for(const bindings of [platformBindings,jingyuBindings,historyBindings,webReaderBindings,modelSearchBindings,memeBindings,memberMemoryBindings,extensionBindings]){bindings.get(sid)?.();bindings.delete(sid);}
     dshBindings.get(sid)?.dispose();dshBindings.delete(sid);fileBindings.get(sid)?.dispose();fileBindings.delete(sid);
     const handle=handles.get(sid);handles.delete(sid);if(handle)await handle.dispose();
   }
@@ -588,9 +591,16 @@ export function apply(ctx, config={}) {
   }
 
   async function syncExtensions(agent,key,admissionMessages) {
-    if(internalGroupChat)return;
     const sid=String(agent.session.id),item=pending.get(sid);
     if(!item)return;
+    if(internalGroupChat){
+      // Role chat remains tool-free, but receives the same identity-filtered
+      // facts. Never add task tools, extension hooks or workspace instructions.
+      const context=item.extensionContext??'';
+      if(windowPolicy(key)){const state=windowStates.get(sid);if(!state?.prepared)return;state.window.stableInstructions='';state.window.instructions='';state.window.context=context;updateWindow(agent.session,profiles[key],state.window,createUserMessage);}
+      else syncInstructionSlot(agent.session,createUserMessage,'turn',context,admissionMessages);
+      return;
+    }
     const sections=[
       webReaderInstructions(root,key,item.webReaderTurn ?? {urls:new Set()}),
       modelSearchInstructions(root,key,item.modelSearchTurn,{stable:true}),
@@ -912,7 +922,7 @@ export function apply(ctx, config={}) {
     const reply=(code,body)=>{if(!res.destroyed){res.writeHead(code,{'content-type':'application/json; charset=utf-8'});res.end(JSON.stringify(body));}};
     const supplied=Buffer.from(String(req.headers.authorization ?? '').replace(/^Bearer /i,'')), expected=Buffer.from(token);
     if(supplied.length!==expected.length || !crypto.timingSafeEqual(supplied,expected))return reply(401,{error:'unauthorized'});
-    if(req.method==='GET' && req.url==='/health')return reply(200,{ok:accountReady(),instanceId,instanceStartedAt,assistantGroupChat:'read-only-member-channel-v1',offlineReplay:'skip-old-v1',accountScope:loadedAccount.id,messageSource:'wechat-social-bridge',project:'WeChatAgent',projectRoot:root,extensionApiVersion:2,pluginApiVersion:2,pluginRuntime:'isolated-v2',pluginHostFeatures:['actions-v1','documents-v1','persona-read-v1','model-utility-v1','daily-schedule-v1'],fishNotebookMode:'optional-plugin-v1',assistantAccess:'sender-admin-v1',fileTransfer:'workspace-files-v1',assistantController:ASSISTANT_CONTROLLER,assistantFeedback:'thinking-heartbeat-v1',assistantNotifications:'text-result-v2',replyLayout:'adjustable-parts-v1',provider,model,pluginRevision:new URL(import.meta.url).searchParams.get('wechatagent')??'',workModes:WORK_MODE_POLICY,contextMode:'native-session-v1',historyMode:'external-bounded-v1',requestWindow:REQUEST_WINDOW_MODE,continuousTranscript:true,historyArchive:'account-sqlite-v1',costPolicy:COST_POLICY,inputDedup:'confirmed-window-reply-v1',contextMaintenance:'idle-threshold-v1',promptContext:PROMPT_POLICY,sessionNaming:true,sessionGroups:'dsh-workspace-v1',imageInput:'native-attachment-v1',replyText:'final-message-v1',imageRecovery:'per-image-v1',imageOffloadMode:'after-turn-v1',sessionLifecycle:'archive-rotation-v1',turnRecovery:'cancel-on-timeout-v1',followupDedup:'durable-batch-v1',builtinSkills:'web-reader-v1',webPriceRead:'zxsj-api-v1',searchTool:'model-search-v1',searchRoute:'dsh-native-only-v1',dshAccess:'per-chat-v1',memberMemory:'group-scoped-json-v1',stickerPoolReview:'ds-select-v1',searchBudget:'per-turn-count-v1',searchReasoning:'model-default-v1',toolIsolation:SOCIAL_TOOL_ISOLATION,pendingTurns:pending.size,behaviorPolicy:BEHAVIOR_POLICY,coherencePolicy:COHERENCE_POLICY});
+    if(req.method==='GET' && req.url==='/health')return reply(200,{ok:accountReady(),instanceId,instanceStartedAt,processStartedAt:Date.now()-process.uptime()*1000,assistantGroupChat:'read-only-member-channel-v1',offlineReplay:'skip-old-v1',accountScope:loadedAccount.id,messageSource:'wechat-social-bridge',project:'WeChatAgent',projectRoot:root,extensionApiVersion:2,pluginApiVersion:2,pluginRuntime:'isolated-v2',pluginHostFeatures:['actions-v1','documents-v1','persona-read-v1','model-utility-v1','daily-schedule-v1'],fishNotebookMode:'optional-plugin-v1',assistantAccess:'sender-admin-v1',fileTransfer:'workspace-files-v1',assistantController:ASSISTANT_CONTROLLER,assistantFeedback:'thinking-heartbeat-v1',assistantNotifications:'text-result-v2',replyLayout:'adjustable-parts-v1',provider,model,pluginRevision:new URL(import.meta.url).searchParams.get('wechatagent')??'',workModes:WORK_MODE_POLICY,contextMode:'native-session-v1',historyMode:'external-bounded-v1',requestWindow:REQUEST_WINDOW_MODE,continuousTranscript:true,historyArchive:'account-sqlite-v1',costPolicy:COST_POLICY,inputDedup:'confirmed-window-reply-v1',contextMaintenance:'idle-threshold-v1',promptContext:PROMPT_POLICY,sessionNaming:true,sessionGroups:'dsh-workspace-v1',imageInput:'native-attachment-v1',replyText:'final-message-v1',imageRecovery:'per-image-v1',imageOffloadMode:'after-turn-v1',sessionLifecycle:'archive-rotation-v1',turnRecovery:'cancel-on-timeout-v1',followupDedup:'durable-batch-v1',builtinSkills:'web-reader-v1',webPriceRead:'zxsj-api-v1',searchTool:'model-search-v1',searchRoute:'dsh-native-only-v1',dshAccess:'per-chat-v1',memberMemory:'group-scoped-json-v1',stickerPoolReview:'ds-select-v1',searchBudget:'per-turn-count-v1',searchReasoning:'model-default-v1',toolIsolation:SOCIAL_TOOL_ISOLATION,pendingTurns:pending.size,behaviorPolicy:BEHAVIOR_POLICY,coherencePolicy:COHERENCE_POLICY});
     if(!accountReady())return reply(409,{error:'account_changed',detail:'ACCOUNT_SWITCH_REQUIRES_DSH_RESTART'});
     const pluginActionRoute=/^\/plugin-actions\/([a-z][a-z0-9-]{0,39})\/([a-z][a-z0-9-]{0,19})$/.exec(req.url);
     if(req.method==='POST'&&(['/fish-notebook/ask','/fish-notebook/write'].includes(req.url)||pluginActionRoute)){
