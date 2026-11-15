@@ -1,5 +1,7 @@
 import {jingyuConsole} from '../packages/jingyu/console.mjs';
 import {closeJingyu} from '../packages/jingyu/service.mjs';
+import {DinnerService} from '../packages/jingyu/dinner/service.mjs';
+import {DinnerGateway} from '../packages/jingyu/dinner/gateway.mjs';
 import {pythonStatus,findPython} from '../packages/jingyu/python-runtime.mjs';
 import {feedbackSnapshot,saveFeedback} from '../packages/dsh-social-bridge-plugin/assistant-feedback.mjs';
 import {createMemoryConsole} from './memory-console.mjs';
@@ -94,6 +96,12 @@ import {allowedConversation,validateConversationSettings,conversationWorkMode} f
 export function createConsole({ root = projectRoot, port = 3210, runner, readerSetup = runReaderSetup, accountVerifier = verifyWeChatAccount, componentSetup=prepareWeChatComponents, fetchImpl = fetch, nodeExecutable = process.execPath, filePicker, onQuit, processProbe, processStop, platformBrowser } = {}) {
   const updates=createUpdateChecker({root,fetchImpl});
   const publicDir = path.join(projectRoot, 'public', 'console');
+  let dinnerService, dinnerGateway;
+  function dinner() {
+    dinnerService ??= new DinnerService(root, { browser: platformBrowser, fetchImpl });
+    dinnerGateway ??= new DinnerGateway(dinnerService, publicDir);
+    return dinnerService;
+  }
   const pluginInstaller=new PluginInstaller(root);
   const personaCategories=createPersonaCategories(root);
   const categorySnapshot=()=>{try{return personaCategories.read();}catch(error){return {categories:[],assignments:{},revision:null,error:error.message};}};
@@ -394,6 +402,9 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
       if (req.method === 'GET' && route === '/jingyu.js') return reply(200, fs.readFileSync(path.join(publicDir,'jingyu.js')), 'text/javascript; charset=utf-8');
       if (req.method === 'GET' && route === '/jingyu-audio.js') return reply(200, fs.readFileSync(path.join(publicDir,'jingyu-audio.js')), 'text/javascript; charset=utf-8');
       if (req.method === 'GET' && ['/jingyu-platforms.js','/jingyu-calls.js'].includes(route)) return reply(200, fs.readFileSync(path.join(publicDir,route.slice(1))), 'text/javascript; charset=utf-8');
+      if (req.method === 'GET' && ['/dinner-ui.js', '/dinner.css'].includes(route)) {
+        return reply(200, fs.readFileSync(path.join(publicDir, route.slice(1))), route.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8');
+      }
       if (req.method === 'GET' && !route.startsWith('/api/')) {
         if(route==='/plugin-api.md'){res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8','Content-Disposition':'attachment; filename="WeChatAgent-plugin-api-v2.md"','X-Content-Type-Options':'nosniff'});res.end(fs.readFileSync(path.join(projectRoot,'docs/PLUGIN_DEVELOPMENT.md')));return;}
         if(route==='/plugin-example.zip'){const example=path.join(projectRoot,'examples/plugins/chat-notes');inspectPackage(example);res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="chat-notes-1.0.0.zip"','X-Content-Type-Options':'nosniff'});res.end(packZip(packageFiles(example)));return;}
@@ -422,6 +433,15 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
       }
       if (req.method === 'GET' && route === '/api/info') return reply(200, { project: 'WeChatAgent Console', root, version: 1, token: csrf });
       if (req.headers['x-console-token'] !== csrf) throw fault('控制台连接已更新，请刷新页面。', 401);
+      if (route === '/api/dinner' && req.method === 'GET') return reply(200, { ...dinner().view(url.searchParams.get('id')), mobile: dinnerGateway.status() });
+      if (route === '/api/dinner' && req.method === 'POST') {
+        const service = dinner(), body = await readBody(req, 20_000);
+        if (shuttingDown) throw fault('桌面正在关闭，请稍后重试。', 409);
+        if (body?.action === 'mobile-start') return reply(200, await dinnerGateway.start(body.address));
+        if (body?.action === 'mobile-renew') return reply(200, dinnerGateway.renew());
+        if (body?.action === 'mobile-stop') return reply(200, dinnerGateway.close());
+        return reply(200, await service.dispatch(body, { desktop: true }));
+      }
       if(req.method==='GET'&&route==='/api/python-runtime')return reply(200,{reader:pythonStatus(root,'reader'),audio:pythonStatus(root,'audio')});
       if(req.method==='GET'&&route==='/api/wechat-components')return reply(200,wechatComponentsStatus(root));
       if(route.startsWith('/api/jingyu'))return reply(200,await jingyuConsole(root,route,req.method,req.method==='GET'?{}:await readBody(req),{browser:platformBrowser}));
@@ -693,6 +713,7 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
   });
   server.on('close',()=>pluginInstaller.dispose());
   server.once('close',()=>closeJingyu(root));
+  server.once('close', () => { dinnerGateway?.close(); dinnerService?.close(); });
   return { server, shutdown, isBusy: () => shuttingDown || !!activeJob || protectingCredential || processRecoveryBusy, close: () => { server.closeAllConnections(); server.close(); }, start };
 }
 

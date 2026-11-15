@@ -32,6 +32,45 @@ function actPage(args){
  }
  if(args.action==='click'){element.click();return {acted:'click'};}throw Error('不支持的页面动作');
 }
+
+function dinnerPageUrl(value, platform) {
+  const url = new URL(checked(platform, value));
+  const excludedHost = /(?:^|\.)alipay\.com$|(?:^|\.)(?:passport|open|login|auth|pay|cashier)(?:\.|$)/i;
+  const excludedPath = /checkout|payment|cashier|passport|auth|login|address|order[_-]?(?:confirm|detail|list)/i;
+  if (!['meituan', 'taobao'].includes(platform) || excludedHost.test(url.hostname) ||
+    excludedPath.test(decodeURIComponent(url.pathname + url.search + url.hash))) {
+    throw problem('请手动回到平台的餐品列表再继续。');
+  }
+  return url;
+}
+
+// Re-read the live DOM and click within the same renderer turn. Text that is
+// not specific enough to identify a single add-item button is left to the user.
+function addDinnerFromPage(expected) {
+  if (location.href !== expected.href) return 'no-match';
+  const key = value => String(value ?? '').normalize('NFKC').replace(/[\s\p{P}]+/gu, '').toLowerCase();
+  const visible = node => {
+    const box = node.getBoundingClientRect(), style = getComputedStyle(node);
+    return box.width > 0 && box.height > 0 && box.right > 0 && box.left < innerWidth && box.bottom > 0 && box.top < innerHeight &&
+      style.display !== 'none' && style.visibility === 'visible';
+  };
+  const store = key(expected.store);
+  const headings = [...document.querySelectorAll('h1,h2,[role="heading"]')].filter(visible);
+  if (!store || !headings.some(node => key(node.innerText) === store)) return 'no-match';
+  const blocked = /结算|提交|确认订单|下单|付[款费]|支付|购买|登录|验证码|授权|order|checkout|payment|buy/i;
+  const target = key(expected.item) + key(expected.spec);
+  if (!target) return 'no-match';
+  const names = ['加入购物车', '添加到购物车', '加购'].flatMap(verb => [key(verb) + target, target + key(verb)]);
+  const buttons = [...document.querySelectorAll('button,[role="button"]')].filter(node => {
+    const labels = [node.getAttribute('aria-label'), node.getAttribute('title'), node.innerText].filter(Boolean);
+    return visible(node) && !node.closest('form,a') && node.getAttribute('type') !== 'submit' && !node.disabled && node.getAttribute('aria-disabled') !== 'true' &&
+      !blocked.test(node.getAttribute('data-action') ?? '') && !labels.some(label => blocked.test(label)) && labels.some(label => names.includes(key(label)));
+  });
+  if (buttons.length !== 1) return 'no-match';
+  buttons[0].click();
+  return 'submitted';
+}
+
 class PlatformBrowser{
  constructor({BrowserWindow,session,root}){Object.assign(this,{BrowserWindow,session,root});this.windows=new Map();this.observations=new Map();}
  key(account,platform){if(!/^[a-f0-9]{64}$/.test(account))throw problem('请先验证微信账号。');checked(platform);return account+':'+platform;}
@@ -71,6 +110,38 @@ class PlatformBrowser{
   this.observations.delete(key);const result=await win.webContents.executeJavaScript('('+actPage.toString()+')('+JSON.stringify(value)+')',true);return {...result,verified:false,notice:'已操作页面，请重新查看购物车或播放器状态；没有自动提交订单或付款。'};
  }
  async cookies(account,platform){const win=this.windows.get(this.key(account,platform));if(!win||win.isDestroyed())return '';const values=await win.webContents.session.cookies.get({domain:'.bilibili.com'});return values.map(row=>row.name+'='+row.value).join('; ');}
+ async showDinnerPlatform(scope, platform) {
+  const existing = this.windows.get(this.key(scope, platform));
+  if (!existing || existing.isDestroyed()) {
+   try { await this.open(scope, { platform }); } catch { throw problem('平台窗口未能加载，请使用手机或浏览器中的官方入口。'); }
+  } else {
+   if (existing.isMinimized()) existing.restore();
+   existing.show();
+   existing.focus();
+  }
+  return { opened: true };
+ }
+
+ async readDinnerSelection(scope, platform) {
+  const win = this.get(scope, platform);
+  const url = dinnerPageUrl(win.webContents.getURL(), platform);
+  const selected = await win.webContents.executeJavaScript(`location.href === ${JSON.stringify(url.href)} ? String(getSelection() ?? '') : ''`);
+  if (typeof selected !== 'string' || !selected.trim()) throw problem('请先在平台窗口用鼠标选中店名、餐品和价格文字。');
+  if (selected.length > 3000) throw problem('选中文字过多，请只选择要比较的菜单部分。');
+  return { text: selected.trim(), source: url.hostname, observedAt: Date.now() };
+ }
+
+ async addDinnerItem(scope, platform, candidate, signal) {
+  let win, url;
+  try {
+   win = this.get(scope, platform);
+   url = dinnerPageUrl(win.webContents.getURL(), platform);
+  } catch { return 'no-match'; }
+  if (signal?.aborted || candidate.quantity !== 1) return 'no-match';
+  const expected = { href: url.href, store: candidate.store, item: candidate.item, spec: candidate.spec };
+  return win.webContents.executeJavaScript('(' + addDinnerFromPage.toString() + ')(' + JSON.stringify(expected) + ')', true);
+ }
+
  close(){for(const win of this.windows.values())if(!win.isDestroyed())win.destroy();this.windows.clear();this.observations.clear();}
 }
-module.exports={PlatformBrowser,checked,snapshotPage,actPage};
+module.exports={PlatformBrowser,checked,snapshotPage,actPage,addDinnerFromPage};

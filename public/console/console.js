@@ -1,4 +1,5 @@
 import {createJingyuUI} from './jingyu.js';
+import {mountDinner} from './dinner-ui.js';
 import {sessionUsage} from './session-usage.js';
 import {consoleRoute,routeKey,SETTINGS_SECTIONS} from './layout-model.mjs';
 import {createWorkspaceLayout} from './workspace-layout.js';
@@ -37,6 +38,7 @@ const workspaceLayout=createWorkspaceLayout({api,state,escapeHtml,icon,header,fi
 const pageScroll=new Map();let currentRoute={page:'overview'};
 function selectRoute(hash){currentRoute=consoleRoute(hash);state.page=currentRoute.page;if(currentRoute.page==="memory")state.memorySection=currentRoute.section;state.settingsSection=currentRoute.page==='settings'?currentRoute.section:state.settingsSection;state.stickerSection=currentRoute.page==='stickers'?currentRoute.section:state.stickerSection;state.capabilitySection=currentRoute.page==='extensions'?currentRoute.section:state.capabilitySection;if(currentRoute.detail)state.chatDetailTab=currentRoute.detail;}
 const pages = {
+  dinner: ['晚饭与晚间安排', '从选餐、核对费用到反馈，下次还能接着用。'],
   jingyu:['鲸鱼账户与记忆','API 余额、主人绑定与单向共享记忆。'],
   settings: ['设置', '默认行为、连接与诊断按用途分类。'],
   setup: ['首次配置', '按下面的步骤连接自己的微信与模型，无需命令行。'],
@@ -116,7 +118,8 @@ function updateDraftUI() {
   if($('#delete-role'))$('#delete-role').disabled=state.savingAll||roleSaves.size>0||!!state.deletingRole||state.job?.state==='running';
 }
 async function api(route, body, retry = true) {
-  const response = await fetch(route, { method: body === undefined ? 'GET' : 'POST', headers: { 'X-Console-Token': state.token, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(route === '/api/browse' ? 180000 : route === '/api/fish-notebook/write' ? 45000 : 20000) });
+  const timeout = route === '/api/dinner' ? 30000 : route === '/api/browse' ? 180000 : route === '/api/fish-notebook/write' ? 45000 : 20000;
+  const response = await fetch(route, { method: body === undefined ? 'GET' : 'POST', headers: { 'X-Console-Token': state.token, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(timeout) });
   const result = await response.json();
   if (response.status === 401 && retry) {
     const info = await fetch('/api/info').then(r => r.json());
@@ -421,8 +424,10 @@ async function logsPage() {
   return `<section class="card">${header('本机运行日志', '显示所选文件最近 120 KB 的内容。')}<div class="log-toolbar"><select id="log-file" aria-label="日志文件">${state.logs.files.map(file => `<option ${file === state.logs.file ? 'selected' : ''}>${escapeHtml(file)}</option>`).join('')}</select><input id="log-filter" aria-label="过滤日志" placeholder="筛选关键词"><button class="button" id="export-log">${icon('download')}导出当前日志</button></div><pre class="log-view" id="log-view" tabindex="0">${escapeHtml(state.logs.content || '当前没有日志记录。')}</pre><div class="log-caption"><span>连接令牌与受保护凭据已隐藏</span><button class="link-button" id="reload-log">刷新日志</button></div></section>`;
 }
 let renderSequence = 0;
+let disposeDinner;
 async function renderPage() {
   if (!state.config) return;
+  disposeDinner?.(); disposeDinner = null;
   const sequence = ++renderSequence; const page = state.page;
   const title=page==='settings'?'设置 · '+SETTINGS_SECTIONS[state.settingsSection??'chat']:pages[page][0];
   $('#page-title').textContent = title; $('#breadcrumb-page').textContent = title; $('#page-description').textContent = pages[page][1];
@@ -430,6 +435,7 @@ async function renderPage() {
   document.querySelectorAll('[data-page]').forEach(a => page === a.dataset.page ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
   let markup;
   try {
+    if (page === 'dinner') markup = '<div id="dinner-workspace" class="dinner"></div>';
     if (['chats','settings','extensions','stickers','memory'].includes(page)) $('#page-body').innerHTML = '<div class="loading-state">正在读取…</div>';
     if (page === 'jingyu') markup = await jingyuUI.page();
     if (page === 'overview') markup = overviewPage();
@@ -447,6 +453,7 @@ async function renderPage() {
   if (sequence !== renderSequence || state.page !== page) return;
   if(page==='setup')markup+=`<section class="card process-recovery-card">${header('端口与进程排查','遇到端口占用、其他微信实例或连接失败时，先检查正在运行的进程。','','tool')}<p class="card-description">检查不会停止程序。只有选中具体进程并再次确认后才会停止；随后可重新打开微信或 DSH，再重试配置。</p><button class="button" data-process-recovery>${icon('search')}检查端口与进程</button></section>`;
   $('#page-body').innerHTML = markup; updateDraftUI(); paintStatus(); paintReaderSetup();
+  if (page === 'dinner') disposeDinner = mountDinner($('#dinner-workspace'), api, { desktop: true });
   if(page==='jingyu')jingyuUI.mount(renderPage);
   if(page==='memory'){if(state.memorySection==='notebook')fishNotebookUI.mount();else memoryUI.mount();}
   if(page==='stickers'&&state.stickerSection==='library')stickerManagerUI.mount();
