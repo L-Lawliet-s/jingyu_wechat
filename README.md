@@ -16,6 +16,8 @@
 
 新版逐项验收见 [完整测试方案](docs/FULL_FEATURE_TEST_PLAN.md)：107 个基础用例，覆盖新功能、权限隔离、异常恢复和旧功能回归。
 
+参赛版从「晚饭与晚间安排」进入。桌面与配对的手机网页可接续同一外卖任务，比较预算和口味，确认餐品、复核购物车并收集反馈。参见[参赛改造与实施计划](docs/COMPETITION_PLAN.md)及[逐阶段完成报告](docs/COMPETITION_PROGRESS.md)。
+
 微信首次连接的自动初始化、组件准备及实机结果见 [连接修复说明](docs/WECHAT_CONNECTION_FIX.md)。
 
 账号、密钥和运行数据不进入 Git。初始导入保留上游提交历史、[LICENSE](LICENSE) 和 [第三方来源与许可](LICENSES.md)。上游基线为 5cdedddc60936c550ce5c02558eb025a5350f48e。
