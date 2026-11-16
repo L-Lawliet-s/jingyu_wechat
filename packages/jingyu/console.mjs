@@ -7,7 +7,9 @@ import {pythonStatus} from './python-runtime.mjs';
 import {companionLibrary} from './companion.mjs';
 
 export async function jingyuConsole(root,route,method,body={},options={}){
- const {store,billing,audio,platforms,calls}=jingyuFor(root,options);
+ const {store,billing,audio,platforms,calls,trips}=jingyuFor(root,options);
+ if(route==='/api/jingyu/trips'&&method==='GET')return trips.view();
+ if(route==='/api/jingyu/trips'&&method==='POST')return trips.desktop(body);
  const configFile=path.join(root,'config/wechatagent.json');const config=fs.existsSync(configFile)?JSON.parse(fs.readFileSync(configFile,'utf8').replace(/^\uFEFF/,'')):{};
  const chats=(config.wechat?.whitelist?.private??[]).map(id=>'wechat:private:'+id),reminders=new StudyReminders(store);
  const cardChats=[...chats,...(config.wechat?.whitelist?.groups??[]).map(id=>'wechat:group:'+id)];

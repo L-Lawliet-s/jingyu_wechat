@@ -403,7 +403,7 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
       if (req.method === 'GET' && route === '/jingyu.js') return reply(200, fs.readFileSync(path.join(publicDir,'jingyu.js')), 'text/javascript; charset=utf-8');
       if (req.method === 'GET' && route === '/jingyu-audio.js') return reply(200, fs.readFileSync(path.join(publicDir,'jingyu-audio.js')), 'text/javascript; charset=utf-8');
       if (req.method === 'GET' && ['/jingyu-platforms.js','/jingyu-calls.js','/jingyu-companion.js'].includes(route)) return reply(200, fs.readFileSync(path.join(publicDir,route.slice(1))), 'text/javascript; charset=utf-8');
-      if (req.method === 'GET' && ['/dinner-ui.js', '/life-ui.js', '/commute-ui.js', '/dinner.css'].includes(route)) {
+      if (req.method === 'GET' && ['/dinner-ui.js', '/life-ui.js', '/commute-ui.js', '/trip-ui.js', '/dinner.css'].includes(route)) {
         return reply(200, fs.readFileSync(path.join(publicDir, route.slice(1))), route.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8');
       }
       if (req.method === 'GET' && !route.startsWith('/api/')) {

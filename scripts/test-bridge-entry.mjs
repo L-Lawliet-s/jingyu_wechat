@@ -7,6 +7,7 @@ import http from 'node:http';
 import {fork} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
+import {actorChat,JingyuStore} from '../packages/jingyu/store.mjs';
 
 const projectRoot=path.resolve(process.env.WECHATAGENT_ENTRY_TEST_ROOT??path.join(import.meta.dirname,'..'));
 const entry=path.join(projectRoot,'components/qq-bridge/src/social-bridge.js');
@@ -22,16 +23,19 @@ if(process.argv[2]==='--bridge-entry-fixture'){
   process.on('message',message=>{if(message==='stop')process.emit('SIGTERM');});
   process.send({ready:true,port});
 }else{
-  test('real bridge entry dispatches private and group text, reloads reply limits, and scopes notebook routing', {timeout:30000},async t=>{
+  test('real bridge entry preserves ordinary chat and routes two verified private conversations into a shared trip', {timeout:30000},async t=>{
     const root=fs.mkdtempSync(path.join(os.tmpdir(),'wechatagent-entry-'));
     const requests=[],sent=[];let child,ws,exited,logs='',ready;
     const configFile=path.join(root,'config/wechatagent.json');
+    const account='1'.repeat(64), owner='bridge-test-owner', member='bridge-test-member';
+    const ownerId=Number(actorChat(owner).split(':').at(-1));
+    const memberId=Number(actorChat(member).split(':').at(-1));
     const server=http.createServer(async(req,res)=>{
       const chunks=[];for await(const chunk of req)chunks.push(chunk);
       const body=chunks.length?JSON.parse(Buffer.concat(chunks)):null;
       requests.push({route:req.url,body});
       res.setHeader('Content-Type','application/json');
-      if(req.url==='/health')res.end(JSON.stringify({ok:true,project:'WeChatAgent',projectRoot:root,contextMode:'native-session-v1',instanceId:'entry-fixture',instanceStartedAt:Date.now()}));
+      if(req.url==='/health')res.end(JSON.stringify({ok:true,project:'WeChatAgent',projectRoot:root,accountScope:account,contextMode:'native-session-v1',instanceId:'entry-fixture',instanceStartedAt:Date.now()}));
       else if(req.url==='/followup')res.end(JSON.stringify({text:'RESPOND: Fixture reply '+requests.length}));
       else if(req.url==='/fish-notebook/ask')res.end(JSON.stringify({handled:true,text:'RESPOND: Fixture notebook reply'}));
       else{res.statusCode=404;res.end('{}');}
@@ -55,9 +59,13 @@ if(process.argv[2]==='--bridge-entry-fixture'){
       }
     };
     await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
-    const wechat={enabled:true,whitelist:{private:['123'],groups:['456']},wake_mode:'hybrid',wake_words:['助手'],replyLayout:{maxMessages:0},search:{enabled:false},stickers:{enabled:false},proactive:{enabled:false},context:{enabled:false}};
+    const wechat={enabled:true,whitelist:{private:['123',String(ownerId),String(memberId)],groups:['456']},wake_mode:'hybrid',wake_words:['助手'],replyLayout:{maxMessages:0},search:{enabled:false},stickers:{enabled:false},proactive:{enabled:false},context:{enabled:false}};
     const save=()=>fs.writeFileSync(configFile,JSON.stringify({version:1,wechat,persona:{default:'Fixture',chats:{}}}));
     fs.mkdirSync(path.dirname(configFile),{recursive:true});save();
+    fs.mkdirSync(path.join(root,'state/weflow'),{recursive:true});
+    fs.writeFileSync(path.join(root,'state/weflow/active-account.json'),JSON.stringify({id:account}));
+    const store=new JingyuStore(root,account);
+    try{store.saveSettings({ownerWxid:owner,sharedMemoryEnabled:true,allowGroupShared:false});}finally{store.close();}
     const bridgeConfig=path.join(root,'bridge.json');
     fs.writeFileSync(bridgeConfig,JSON.stringify({project_root:root,platforms:{wechat:{...wechat,onebot:{server:{host:'127.0.0.1',port:0,path:'/ws'}}}},role:'Fixture persona',role_name:'',message_buffer:{path:path.join(root,'state/messages.json')},search_policy_file:configFile,sticker_policy_file:configFile,proactive_policy_file:configFile,context_policy_file:configFile,proactive_state_file:path.join(root,'state/proactive.json'),social:{batch_ms:1,min_interval_ms:0,private_min_interval_ms:0,max_per_minute:100,max_per_ten_minutes:100},dsh_plugin:{url:'http://127.0.0.1:'+server.address().port,token:'fixture-token'}}));
     child=fork(import.meta.filename,['--bridge-entry-fixture',bridgeConfig],{cwd:root,stdio:['ignore','pipe','pipe','ipc'],env:{...process.env,SOCIAL_ONEBOT_TOKEN:''}});
@@ -97,5 +105,23 @@ if(process.argv[2]==='--bridge-entry-fixture'){
     await send('group','助手 看看你的日记');
     assert.equal(turns().at(-1).route,'/followup');assert.equal(turns().at(-1).body.fishNotebookRequest,undefined);
     assert.equal(turns().length,4);assert.deepEqual(sent.map(item=>item.action),['send_private_msg','send_group_msg','send_private_msg','send_group_msg']);
+    const talk=async(actor,id,text)=>{
+      const count=sent.length;
+      ws.send(JSON.stringify({post_type:'message',message_type:'private',self_id:999,user_id:id,sender:{user_id:id,nickname:'同行者'},
+        message_id:++sequence,time:Date.now()/1000,message:text,wechatagent:{senderWxid:actor}}));
+      await until(()=>sent.length===count+1,'trip reply');
+      assert.equal(sent.at(-1).params.user_id,id);
+      return sent.at(-1).params.message[0].data.text;
+    };
+    const welcome=await talk(owner,ownerId,'出游新建 周末看展');
+    const code=/出游 ([0-9A-F]{8}) 加入/.exec(welcome)[1];
+    assert.match(welcome,/主人/);
+    assert.match(await talk(member,memberId,`出游 ${code} 加入`),/小鲸鱼 AI/);
+    assert.match(await talk(member,memberId,`出游 ${code} 预算175元，偏好室内`),/确认 1/);
+    assert.doesNotMatch(await talk(owner,ownerId,`出游 ${code} 汇总`),/175/);
+    assert.match(await talk(member,memberId,`出游 ${code} 确认 1`),/发起人汇总/);
+    assert.match(await talk(owner,ownerId,`出游 ${code} 汇总`),/175.00/);
+    assert.doesNotMatch(await talk(member,memberId,`出游 ${code} 查看`),/175/);
+    assert.equal(turns().length,4);
   });
 }

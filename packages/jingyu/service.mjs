@@ -4,6 +4,7 @@ import {activeReaderAccount} from '../../scripts/reader-account-state.mjs';
 import {AudioSession} from './audio-session.mjs';
 import {PlatformService} from './platform-service.mjs';
 import {CallSession} from './call-session.mjs';
+import {TripService} from './trip.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {selectRoleText} from '../../components/qq-bridge/src/role-card.js';
@@ -27,7 +28,7 @@ export function jingyuFor(root,options={}){
       }
       const companion=boundCompanion(root,account,chat,store.get('companion:'+chat));
       return withCompanionPersona(companion ? persona.slice(0,4600) : persona,companion,chat);
-    }});instances.set(key,{store,billing,audio,calls:new CallSession(store,audio,{...options,root}),platforms:new PlatformService(store,options)});
+    }});instances.set(key,{store,billing,audio,calls:new CallSession(store,audio,{...options,root}),platforms:new PlatformService(store,options),trips:new TripService(store)});
   }const service=instances.get(key);if(options.browser)service.platforms.browser=options.browser;return service;
 }
 export function verifiedPrivateActor(chat,actor){return validActor(actor)&&actorChat(actor)===chat?actor:'';}

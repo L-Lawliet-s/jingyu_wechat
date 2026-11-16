@@ -36,16 +36,25 @@ async function ready(win, expression) {
     if (await run(win, `Boolean(${expression})`)) return;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  throw Error('Renderer state timed out: ' + expression + ' · ' + (await run(win, 'document.querySelector("[data-dinner-message],[data-life-status],[data-commute-status],#dinner-pair-status")?.textContent ?? ""')).slice(0, 120));
+  throw Error('Renderer state timed out: ' + expression + ' · ' + (await run(win, 'document.querySelector("[data-dinner-message],[data-life-status],[data-commute-status],[data-trip-status],#dinner-pair-status")?.textContent ?? ""')).slice(0, 120));
 }
 
 app.whenReady().then(async () => {
   const { createConsole } = await import('./console-server.mjs');
   const { DinnerService } = await import('../packages/jingyu/dinner/service.mjs');
   const { DinnerGateway } = await import('../packages/jingyu/dinner/gateway.mjs');
+  const { JingyuStore,actorChat } = await import('../packages/jingyu/store.mjs');
+  const { jingyuFor } = await import('../packages/jingyu/service.mjs');
+  const { parseTripMessage } = await import('../packages/jingyu/trip.mjs');
   fs.mkdirSync(path.join(root, 'config'), { recursive: true });
   fs.mkdirSync(path.join(root, 'roles'));
   fs.copyFileSync(path.join(project, 'config/wechatagent.example.json'), path.join(root, 'config/wechatagent.example.json'));
+  const account='9'.repeat(64);
+  fs.mkdirSync(path.join(root,'state/weflow'),{recursive:true});
+  fs.writeFileSync(path.join(root,'state/weflow/active-account.json'),JSON.stringify({id:account}));
+  const setupStore=new JingyuStore(root,account);
+  try{setupStore.saveSettings({ownerWxid:'ui-trip-owner',sharedMemoryEnabled:true,allowGroupShared:false});}
+  finally{setupStore.close();}
   const consoleServer = createConsole({ root, port: 0 });
   const dining = new DinnerService(root);
   const gateway = new DinnerGateway(dining, path.join(project, 'public/console'), { loopback: true });
@@ -134,10 +143,30 @@ app.whenReady().then(async () => {
     await form(phone,'share',{recipient:'测试同学',confirmed:true},'commute');
     await ready(phone,'document.querySelector("[data-commute-copy]")?.value.includes("公交")');
     assert(await run(phone, 'document.documentElement.scrollWidth <= innerWidth'));
+    await click(desk,'[data-page=trips]');
+    await ready(desk,'document.querySelector("[data-trip-form=create]")');
+    await form(desk,'create',{title:'跨会话看展'},'trip');
+    await ready(desk,'document.querySelector("[data-trip-code]")');
+    const {trips}=jingyuFor(root);
+    const tripCode=trips.view().list[0].code;
+    const actor='ui-trip-member', chat=actorChat(actor);
+    const memberSay=(text,receipt)=>trips.chat(parseTripMessage('出游 '+tripCode+' '+text),{actor,chat,name:'测试同行者',receipt});
+    memberSay('加入','ui-join');
+    memberSay('预算135元','ui-draft');
+    await ready(desk,'document.body.textContent.includes("对方有待确认草稿")');
+    assert.equal(await run(desk,'document.body.textContent.includes("135.00")'),false);
+    memberSay('确认 1','ui-confirm');
+    await ready(desk,'document.body.textContent.includes("135.00")');
+    const endDate=new Date(Date.now()+25*3600_000+8*3600_000).toISOString().slice(0,16);
+    await form(desk,'candidate',{title:'测试展馆',place:'南门',start:zoneDate,end:endDate,per:'80',shared:'10'},'trip');
+    await ready(desk,'document.querySelector("[data-trip-form=publish]")');
+    await form(desk,'publish',{acceptGaps:true},'trip');
+    await ready(desk,'document.body.textContent.includes("已发布方案")');
+    assert.match(memberSay('查看','ui-view'),/测试展馆/);
     await click(phone, '#dinner-unpair');
     await ready(phone, 'document.querySelector("#dinner-pair-form")');
     assert.equal(gateway.status().connected, false);
-    console.log(JSON.stringify({ desktopEntry:true, mobilePairing:true, taskShared:true, revisionSynced:true, feedbackSaved:true, mobileFits:true, cardSynced:true, lifeSynced:true, lifeSuggestion:true, commuteReplanned:true, commuteSharePrepared:true, unpairRevoked:true }));
+    console.log(JSON.stringify({ desktopEntry:true, mobilePairing:true, taskShared:true, revisionSynced:true, feedbackSaved:true, mobileFits:true, cardSynced:true, lifeSynced:true, lifeSuggestion:true, commuteReplanned:true, commuteSharePrepared:true, tripDraftIsolated:true,tripPublished:true,unpairRevoked:true }));
   } finally {
     desk.destroy(); phone.destroy(); gateway.close(); dining.close();
     if (consoleServer.server.listening) {

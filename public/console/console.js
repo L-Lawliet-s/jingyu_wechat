@@ -2,6 +2,7 @@ import {createJingyuUI} from './jingyu.js';
 import {mountDinner} from './dinner-ui.js';
 import {mountLife} from './life-ui.js';
 import {mountCommute} from './commute-ui.js';
+import {mountTrips} from './trip-ui.js';
 import {sessionUsage} from './session-usage.js';
 import {consoleRoute,routeKey,SETTINGS_SECTIONS} from './layout-model.mjs';
 import {createWorkspaceLayout} from './workspace-layout.js';
@@ -43,6 +44,7 @@ const pages = {
   dinner: ['晚饭与晚间安排', '从选餐、核对费用到反馈，下次还能接着用。'],
   life: ['生活日程', '整理通知、确认待办和提醒，按自己的节奏安排。'],
   commute: ['通勤', '核对路线耗时，按天气和日程调整出发时间。'],
+  trips: ['出游协作', '微信私聊收集同行者的时间、预算和偏好。'],
   jingyu:['鲸鱼账户与记忆','API 余额、主人绑定与单向共享记忆。'],
   settings: ['设置', '默认行为、连接与诊断按用途分类。'],
   setup: ['首次配置', '按下面的步骤连接自己的微信与模型，无需命令行。'],
@@ -439,7 +441,7 @@ async function renderPage() {
   document.querySelectorAll('[data-page]').forEach(a => page === a.dataset.page ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
   let markup;
   try {
-    if (['dinner','life','commute'].includes(page)) markup = '<div id="dinner-workspace" class="dinner"></div>';
+    if (['dinner','life','commute','trips'].includes(page)) markup = '<div id="dinner-workspace" class="dinner"></div>';
     if (['chats','settings','extensions','stickers','memory'].includes(page)) $('#page-body').innerHTML = '<div class="loading-state">正在读取…</div>';
     if (page === 'jingyu') markup = await jingyuUI.page();
     if (page === 'overview') markup = overviewPage();
@@ -460,6 +462,7 @@ async function renderPage() {
   if (page === 'dinner') disposeDinner = mountDinner($('#dinner-workspace'), api, { desktop: true });
   if (page === 'life') disposeDinner = mountLife($('#dinner-workspace'), api, { desktop: true });
   if (page === 'commute') disposeDinner = mountCommute($('#dinner-workspace'), api);
+  if (page === 'trips') disposeDinner = mountTrips($('#dinner-workspace'), api);
   if(page==='jingyu')jingyuUI.mount(renderPage);
   if(page==='memory'){if(state.memorySection==='notebook')fishNotebookUI.mount();else memoryUI.mount();}
   if(page==='stickers'&&state.stickerSection==='library')stickerManagerUI.mount();

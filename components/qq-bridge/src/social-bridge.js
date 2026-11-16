@@ -1,6 +1,7 @@
 import {jingyuFor,closeJingyu} from '../../../packages/jingyu/service.mjs';
 import {StudyReminders} from '../../../packages/jingyu/reminders.mjs';
 import {boundCompanion,quietNow} from '../../../packages/jingyu/companion.mjs';
+import {handleTripMessage} from '../../../packages/jingyu/trip-chat.mjs';
 import {pluginEnabled} from '../../../packages/plugin-api/catalog.mjs';
 import {replyMessageLimit} from '../../../packages/dsh-social-bridge-plugin/reply-layout-policy.mjs';
 import {AssistantFeedback} from '../../../packages/dsh-social-bridge-plugin/assistant-feedback.mjs';
@@ -113,6 +114,11 @@ adapter.onMessage(async (message) => {
     }
     log(`[WeChat] accepted ${buildConversationKey(message.platform, message.kind, message.conversation_id)}`);
     const key=buildConversationKey(message.platform,message.kind,message.conversation_id);
+    if(await handleTripMessage(message,{account:historyAccount.id,allowed:id=>allowedPrivate.has(String(id)),
+      current:()=>Boolean(historyAccount.id)&&activeReaderAccount(historyRoot).id===historyAccount.id,
+      service:()=>jingyuFor(historyRoot,{account:historyAccount.id}).trips,
+      tone:(store,chat)=>boundCompanion(historyRoot,store.account,chat,store.get('companion:'+chat)),
+      send:reply=>adapter.sendText(reply)}))return;
     if(buffer.findIncoming(message)||memberBuffer.findIncoming(message)||message.kind==='group'&&engine.workModeFor(key)==='assistant'&&engine.assistantAllowed(key,message)&&memberHistory.hasIncoming(key,message)){
       log('[WeChat] '+key+' duplicate_routed_input_ignored');return;
     }
