@@ -7,6 +7,7 @@ import { fault, hash } from '../store.mjs';
 import { DinnerPlanner } from './planner.mjs';
 import { companionDefaults, quietNow, updateCompanion } from '../companion.mjs';
 import { LifeService } from '../life.mjs';
+import { CommuteService } from '../commute.mjs';
 import {
   assessQuote, boundedInteger, cents, localTime, orderedCandidates, plainObject,
   PLATFORMS, SAMPLE_MENU, SPICE, STYLES, text, validateCandidate, validateGoal,
@@ -56,6 +57,7 @@ export class DinnerService {
     this.billing = new Billing({ directory }, { crypt });
     this.planner = new DinnerPlanner(this.billing, { fetchImpl, now });
     this.life = new LifeService(this, { fetchImpl });
+    this.commute = new CommuteService(this, { fetchImpl });
   }
 
   setting(name, fallback) {
@@ -382,7 +384,10 @@ export class DinnerService {
   }
 
   async dispatch(body, { desktop = false, signal } = {}) {
-    if (typeof body?.action === 'string' && body.action.startsWith('life-')) return this.life.dispatch(body, signal);
+    if (typeof body?.action === 'string') {
+      if (body.action.startsWith('life-')) return this.life.dispatch(body, signal);
+      if (body.action.startsWith('commute-')) return this.commute.dispatch(body, signal);
+    }
     if (!plainObject(body)) throw fault('晚饭任务表单无效。');
     switch (body.action) {
       case 'intent': return this.planner.intent(body.text, body.sample === true ? null : this.preferences(), body.model === true && body.sample !== true, signal);

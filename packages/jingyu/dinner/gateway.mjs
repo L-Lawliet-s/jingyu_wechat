@@ -13,6 +13,7 @@ const allowedFiles = new Map([
   ['/dinner-mobile.js', ['dinner-mobile.js', 'text/javascript; charset=utf-8']],
   ['/dinner-ui.js', ['dinner-ui.js', 'text/javascript; charset=utf-8']],
   ['/life-ui.js', ['life-ui.js', 'text/javascript; charset=utf-8']],
+  ['/commute-ui.js', ['commute-ui.js', 'text/javascript; charset=utf-8']],
   ['/dinner.css', ['dinner.css', 'text/css; charset=utf-8']],
   ['/app-icon.png', ['app-icon.png', 'image/png']],
 ]);
@@ -151,6 +152,7 @@ export class DinnerGateway {
       }
       if (req.method === 'GET') {
         if (url.searchParams.get('view') === 'life') return reply(200, this.service.life.view(url.searchParams.get('id')));
+        if (url.searchParams.get('view') === 'commute') return reply(200, this.service.commute.view(url.searchParams.get('id')));
         const { platformWindow, ...view } = this.service.view(url.searchParams.get('id'));
         return reply(200, view);
       }

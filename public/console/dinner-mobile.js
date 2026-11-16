@@ -1,5 +1,6 @@
 import { mountDinner } from './dinner-ui.js';
 import { mountLife } from './life-ui.js';
+import { mountCommute } from './commute-ui.js';
 
 const app = document.getElementById('dinner-mobile-app');
 const pairing = document.getElementById('dinner-pairing');
@@ -48,7 +49,7 @@ function showTasks() {
   const tabs = document.createElement('nav');
   tabs.className = 'dinner dinner-actions life-tabs';
   tabs.setAttribute('aria-label', '生活助手');
-  const views = [['dinner', '晚饭与晚间安排', mountDinner], ['life', '生活日程', mountLife]];
+  const views = [['dinner', '晚饭与晚间安排', mountDinner], ['life', '生活日程', mountLife], ['commute', '通勤', mountCommute]];
   const view = document.createElement('div');
   app.replaceChildren(tabs, view);
   unpair.hidden = false;

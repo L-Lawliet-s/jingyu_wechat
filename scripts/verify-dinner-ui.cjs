@@ -16,10 +16,12 @@ function renderer(options) {
   return new BrowserWindow({ show: false, ...options, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
 }
 
-const run = (win, source) => win.webContents.executeJavaScript(source, true);
+const run = (win, source) => win.webContents.executeJavaScript(source, true).catch(error => {
+  throw Error(error.message + ' · ' + source.slice(0,200), {cause:error});
+});
 const click = (win, selector) => run(win, `document.querySelector(${JSON.stringify(selector)}).click()`);
-const form = (win, action, inputs, section = 'dinner') => run(win, `(() => {
-  const form = document.querySelector('[data-${section}-form="${action}"]');
+const form = (win, action, inputs, section = 'dinner', mode) => run(win, `(() => {
+  const form = document.querySelector('[data-${section}-form="${action}"]${mode ? '[data-mode="'+mode+'"]' : ''}');
   for (const [name, value] of Object.entries(${JSON.stringify(inputs)})) {
     const field = form.elements.namedItem(name);
     if (field.type === 'checkbox') field.checked = value;
@@ -34,7 +36,7 @@ async function ready(win, expression) {
     if (await run(win, `Boolean(${expression})`)) return;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  throw Error('Renderer state timed out: ' + expression + ' · ' + (await run(win, 'document.querySelector("[data-dinner-message],[data-life-status],#dinner-pair-status")?.textContent ?? ""')).slice(0, 120));
+  throw Error('Renderer state timed out: ' + expression + ' · ' + (await run(win, 'document.querySelector("[data-dinner-message],[data-life-status],[data-commute-status],#dinner-pair-status")?.textContent ?? ""')).slice(0, 120));
 }
 
 app.whenReady().then(async () => {
@@ -108,10 +110,34 @@ app.whenReady().then(async () => {
     assert(await run(phone, 'document.documentElement.scrollWidth <= innerWidth'));
     await form(phone, 'checkin', { energy:'low', pressure:'high', available:'25' }, 'life');
     await ready(phone, 'document.querySelector("[data-life-action^=suggest]")');
+    await click(desk, '[data-page=commute]');
+    await ready(desk, 'document.querySelector("[data-commute-form=save]")');
+    await click(phone, '[data-mobile-page=commute]');
+    await ready(phone, 'document.querySelector("[data-commute-form=save]")');
+    const zoneDate = new Date(Date.now()+24*3600_000+8*3600_000).toISOString().slice(0,16);
+    await form(phone,'save',{city:'北京',origin:'测试校门',destination:'测试车站',arrival:zoneDate,preferred:'walk'},'commute');
+    await ready(phone,'document.querySelector("[data-commute-form=route][data-mode=walk]")');
+    await form(phone,'route',{minutes:'25',source:'personal'},'commute','walk');
+    await ready(phone,'document.querySelector("[data-commute-form=confirm][data-mode=walk]")');
+    await form(phone,'route',{minutes:'30',source:'map'},'commute','bus');
+    await ready(phone,'document.querySelector("[data-commute-form=confirm][data-mode=bus]")');
+    await form(phone,'confirm',{},'commute','walk');
+    await ready(phone,'document.querySelector("[data-commute-form=share]")');
+    await ready(desk,'document.querySelector("[data-commute-select]").options.length === 2');
+    const commute=dining.commute.view().list[0];
+    await run(desk, `(() => { const picker = document.querySelector('[data-commute-select]'); picker.value=${JSON.stringify(commute.id)}; picker.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    await ready(desk,'document.querySelector("[data-commute-form=share]")');
+    await form(desk,'report',{},'commute');
+    await ready(phone,'document.body.textContent.includes("待重新确认") && !document.querySelector("[data-commute-form=share]")');
+    await form(phone,'confirm',{},'commute','bus');
+    await ready(phone,'document.querySelector("[data-commute-form=share]")');
+    await form(phone,'share',{recipient:'测试同学',confirmed:true},'commute');
+    await ready(phone,'document.querySelector("[data-commute-copy]")?.value.includes("公交")');
+    assert(await run(phone, 'document.documentElement.scrollWidth <= innerWidth'));
     await click(phone, '#dinner-unpair');
     await ready(phone, 'document.querySelector("#dinner-pair-form")');
     assert.equal(gateway.status().connected, false);
-    console.log(JSON.stringify({ desktopEntry: true, mobilePairing: true, taskShared: true, revisionSynced: true, feedbackSaved: true, mobileFits: true, cardSynced: true, lifeSynced:true, lifeSuggestion:true, unpairRevoked: true }));
+    console.log(JSON.stringify({ desktopEntry:true, mobilePairing:true, taskShared:true, revisionSynced:true, feedbackSaved:true, mobileFits:true, cardSynced:true, lifeSynced:true, lifeSuggestion:true, commuteReplanned:true, commuteSharePrepared:true, unpairRevoked:true }));
   } finally {
     desk.destroy(); phone.destroy(); gateway.close(); dining.close();
     if (consoleServer.server.listening) {

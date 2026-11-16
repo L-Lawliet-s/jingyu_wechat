@@ -24,15 +24,23 @@ export function chooseWeatherPlace(results,city){
   calendarDate(Date.now(),matches[0].timezone);return matches[0];
 }
 const number=(value,min,max)=>typeof value==='number'&&Number.isFinite(value)&&value>=min&&value<=max;
+async function lookup(city,fetchImpl,signal,country) {
+  const {name,admin}=qualifyWeatherCity(city);
+  const url=new URL('https://geocoding-api.open-meteo.com/v1/search');
+  url.search=new URLSearchParams({name:admin?name+', '+admin:name,count:'10',language:/[\p{Script=Han}]/u.test(city)?'zh':'en',format:'json'});
+  if(country)url.searchParams.set('countryCode',country);
+  const geo=await json(url,fetchImpl,signal);
+  return chooseWeatherPlace(geo.results,city);
+}
+const locationName = place => [place.country,place.admin1,place.name].map(clean).filter((v,i,a)=>v&&a.indexOf(v)===i).join(' / ');
 export async function fetchWeather(request,{fetchImpl=fetch,timeoutMs=8000,now=Date.now,signal:parentSignal}={}){
-  const signal=parentSignal?AbortSignal.any([parentSignal,AbortSignal.timeout(timeoutMs)]):AbortSignal.timeout(timeoutMs),{name,admin}=qualifyWeatherCity(request.city);
-  const geoUrl=new URL('https://geocoding-api.open-meteo.com/v1/search');geoUrl.searchParams.set('name',admin?name+', '+admin:name);geoUrl.searchParams.set('count','10');geoUrl.searchParams.set('language',/[\p{Script=Han}]/u.test(request.city)?'zh':'en');geoUrl.searchParams.set('format','json');
-  const geo=await json(geoUrl,fetchImpl,signal),place=chooseWeatherPlace(geo.results,request.city),at=now(),dates=requestedWeatherDates(request,at,place.timezone);
+  const signal=parentSignal?AbortSignal.any([parentSignal,AbortSignal.timeout(timeoutMs)]):AbortSignal.timeout(timeoutMs);
+  const place=await lookup(request.city,fetchImpl,signal),at=now(),dates=requestedWeatherDates(request,at,place.timezone);
   const forecastUrl=new URL('https://api.open-meteo.com/v1/forecast');
   for(const[k,v]of Object.entries({latitude:place.latitude,longitude:place.longitude,timezone:place.timezone,forecast_days:16,current:'temperature_2m,weather_code',daily:'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',temperature_unit:'celsius'}))forecastUrl.searchParams.set(k,String(v));
   const data=await json(forecastUrl,fetchImpl,signal);
   if(data.timezone!==place.timezone||!Array.isArray(data.daily?.time)||data.daily_units?.temperature_2m_max!=='°C'||data.daily_units?.temperature_2m_min!=='°C'||data.daily_units?.precipitation_probability_max!=='%')throw Error('WEATHER_RESPONSE_INVALID');
-  const location=[place.country,place.admin1,place.name].map(clean).filter((v,i,a)=>v&&a.indexOf(v)===i).join(' / '),lines=[];
+  const location=locationName(place),lines=[];
   if(request.current&&dates[0]===calendarDate(at,place.timezone)&&number(data.current?.temperature_2m,-100,70)&&wmo[data.current.weather_code]&&typeof data.current.time==='string'&&data.current.time.startsWith(dates[0])&&data.current_units?.temperature_2m==='°C')lines.push(`当前预报（当地 ${clean(data.current.time)}）：${wmo[data.current.weather_code]}，${data.current.temperature_2m}°C。`);
   for(const date of dates){
     const i=data.daily.time.indexOf(date),lo=data.daily.temperature_2m_min?.[i],hi=data.daily.temperature_2m_max?.[i],rain=data.daily.precipitation_probability_max?.[i],code=data.daily.weather_code?.[i];
@@ -41,4 +49,32 @@ export async function fetchWeather(request,{fetchImpl=fetch,timeoutMs=8000,now=D
   }
   const snippet=`${lines.join('\n')}\n地点：${location}；时区：${clean(place.timezone)}。\n数据来自 Open-Meteo（地点由 GeoNames 解析）；属于预报，降水概率不能说成一定下雨。每日数据不能用来断言具体小时天气。查询时间：${new Date(at).toISOString()}。`;
   return {items:[{title:`${clean(place.name)} ${dates[0]}${dates.length>1?'起'+dates.length+'天':''}天气预报`,url:SOURCE,snippet,kind:'weather'}],at,timezone:place.timezone,dates,location};
+}
+
+export async function fetchHourlyWeather(city,{fetchImpl=fetch,now=Date.now,signal:parentSignal}={}) {
+  const timer=AbortSignal.timeout(22_000);
+  const signal=parentSignal?AbortSignal.any([parentSignal,timer]):timer;
+  const place=await lookup(city,fetchImpl,signal,'CN');
+  if(place.country_code!=='CN'||!['Asia/Shanghai','Asia/Chongqing','Asia/Beijing','PRC'].includes(place.timezone))throw Error('WEATHER_NOT_FOUND');
+  const url=new URL('https://api.open-meteo.com/v1/forecast');
+  url.search=new URLSearchParams({
+    latitude:String(place.latitude),longitude:String(place.longitude),timezone:'Asia/Shanghai',forecast_days:'7',
+    hourly:'weather_code,temperature_2m,precipitation_probability,precipitation,wind_gusts_10m',wind_speed_unit:'kmh',
+  });
+  const data=await json(url,fetchImpl,signal);
+  const {hourly,hourly_units:units}=data;
+  if(data.utc_offset_seconds!==28800||!Array.isArray(hourly?.time)||hourly.time.length>168||
+      units?.temperature_2m!=='°C'||units?.precipitation_probability!=='%'||units?.precipitation!=='mm'||units?.wind_gusts_10m!=='km/h'){
+    throw Error('WEATHER_RESPONSE_INVALID');
+  }
+  const hours=hourly.time.flatMap((label,index)=>{
+    const at=/^20\d\d-\d\d-\d\dT\d\d:00$/.test(label)?Date.parse(label+':00+08:00'):NaN;
+    const code=hourly.weather_code?.[index],rain=hourly.precipitation_probability?.[index];
+    const temperature=hourly.temperature_2m?.[index],precipitation=hourly.precipitation?.[index],gust=hourly.wind_gusts_10m?.[index];
+    if(!Number.isFinite(at)||!wmo[code]||!number(temperature,-100,70)||!number(precipitation,0,400)||
+        !number(gust,0,400)||(rain!==null&&!number(rain,0,100)))return [];
+    return [{at,code,label:wmo[code],rain,temperature,precipitation,gust}];
+  });
+  if(!hours.length)throw Error('WEATHER_RESPONSE_INVALID');
+  return {at:now(),location:locationName(place),source:SOURCE,hours};
 }
