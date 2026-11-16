@@ -1,6 +1,7 @@
 import {jingyuConsole} from '../packages/jingyu/console.mjs';
 import {closeJingyu} from '../packages/jingyu/service.mjs';
 import {DinnerService} from '../packages/jingyu/dinner/service.mjs';
+import {LIFE_OCR_LIMIT} from '../packages/jingyu/life-ocr.mjs';
 import {DinnerGateway} from '../packages/jingyu/dinner/gateway.mjs';
 import {pythonStatus,findPython} from '../packages/jingyu/python-runtime.mjs';
 import {feedbackSnapshot,saveFeedback} from '../packages/dsh-social-bridge-plugin/assistant-feedback.mjs';
@@ -402,7 +403,7 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
       if (req.method === 'GET' && route === '/jingyu.js') return reply(200, fs.readFileSync(path.join(publicDir,'jingyu.js')), 'text/javascript; charset=utf-8');
       if (req.method === 'GET' && route === '/jingyu-audio.js') return reply(200, fs.readFileSync(path.join(publicDir,'jingyu-audio.js')), 'text/javascript; charset=utf-8');
       if (req.method === 'GET' && ['/jingyu-platforms.js','/jingyu-calls.js','/jingyu-companion.js'].includes(route)) return reply(200, fs.readFileSync(path.join(publicDir,route.slice(1))), 'text/javascript; charset=utf-8');
-      if (req.method === 'GET' && ['/dinner-ui.js', '/dinner.css'].includes(route)) {
+      if (req.method === 'GET' && ['/dinner-ui.js', '/life-ui.js', '/dinner.css'].includes(route)) {
         return reply(200, fs.readFileSync(path.join(publicDir, route.slice(1))), route.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8');
       }
       if (req.method === 'GET' && !route.startsWith('/api/')) {
@@ -433,7 +434,16 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
       }
       if (req.method === 'GET' && route === '/api/info') return reply(200, { project: 'WeChatAgent Console', root, version: 1, token: csrf });
       if (req.headers['x-console-token'] !== csrf) throw fault('控制台连接已更新，请刷新页面。', 401);
-      if (route === '/api/dinner' && req.method === 'GET') return reply(200, { ...dinner().view(url.searchParams.get('id')), mobile: dinnerGateway.status() });
+      if (route === '/api/dinner' && req.method === 'GET') {
+        const id = url.searchParams.get('id');
+        return reply(200, url.searchParams.get('view') === 'life' ? dinner().life.view(id) :
+          { ...dinner().view(id), mobile: dinnerGateway.status() });
+      }
+      if (route === '/api/dinner/ocr' && req.method === 'POST') {
+        const body = await readBody(req, LIFE_OCR_LIMIT);
+        if (shuttingDown) throw fault('桌面正在关闭，请稍后重试。', 409);
+        return reply(200, await dinner().life.ocr(body));
+      }
       if (route === '/api/dinner' && req.method === 'POST') {
         const service = dinner(), body = await readBody(req, 20_000);
         if (shuttingDown) throw fault('桌面正在关闭，请稍后重试。', 409);

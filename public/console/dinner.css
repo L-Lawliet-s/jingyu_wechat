@@ -65,6 +65,10 @@
 .dinner-content { display: grid; gap: 12px; }
 .dinner-card { min-width: 0; padding: 16px; border: 1px solid var(--dinner-border); border-radius: 14px; background: var(--dinner-surface); }
 .dinner-card > summary { cursor: pointer; font-weight: 690; }
+.life-tabs [aria-pressed="true"] { border-color: var(--dinner-accent); color: var(--dinner-accent); }
+.life-card-controls { margin-top: 10px; }
+.life-source { white-space: pre-wrap; overflow-wrap: anywhere; }
+.life-action-panel:empty { display: none; }
 .dinner-card[open] > summary { margin-bottom: 12px; }
 .dinner-card form { margin-top: 12px; }
 .dinner-fields { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%, 185px),1fr)); gap: 10px; margin: 10px 0; }

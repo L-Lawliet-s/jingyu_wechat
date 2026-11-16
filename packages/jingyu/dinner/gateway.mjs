@@ -4,6 +4,7 @@ import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { fault, hash } from '../store.mjs';
+import { LIFE_OCR_LIMIT } from '../life-ocr.mjs';
 
 const codeLifetime = 5 * 60_000;
 const sessionLifetime = 8 * 3600_000;
@@ -11,6 +12,7 @@ const allowedFiles = new Map([
   ['/', ['dinner-mobile.html', 'text/html; charset=utf-8']],
   ['/dinner-mobile.js', ['dinner-mobile.js', 'text/javascript; charset=utf-8']],
   ['/dinner-ui.js', ['dinner-ui.js', 'text/javascript; charset=utf-8']],
+  ['/life-ui.js', ['life-ui.js', 'text/javascript; charset=utf-8']],
   ['/dinner.css', ['dinner.css', 'text/css; charset=utf-8']],
   ['/app-icon.png', ['app-icon.png', 'image/png']],
 ]);
@@ -23,7 +25,7 @@ function sameSecret(a, b) {
   return a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
-async function body(req) {
+async function body(req, limit = 20_000) {
   if (req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
     throw fault('请从小鲸鱼手机页面提交。', 415);
   }
@@ -31,7 +33,7 @@ async function body(req) {
   let size = 0;
   for await (const part of req) {
     size += part.length;
-    if (size > 20_000) throw fault('提交内容过大。', 413);
+    if (size > limit) throw fault('提交内容过大。', 413);
     parts.push(part);
   }
   try { return JSON.parse(Buffer.concat(parts).toString('utf8')); }
@@ -140,24 +142,27 @@ export class DinnerGateway {
         return reply(200, this.pair(input?.code));
       }
       const unpair = url.pathname === '/api/dinner/unpair' && req.method === 'POST';
-      if (!unpair && (url.pathname !== '/api/dinner' || !['GET', 'POST'].includes(req.method))) throw fault('页面不存在。', 404);
+      const ocr = url.pathname === '/api/dinner/ocr' && req.method === 'POST';
+      if (!unpair && !ocr && (url.pathname !== '/api/dinner' || !['GET', 'POST'].includes(req.method))) throw fault('页面不存在。', 404);
       const auth = /^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization ?? '');
       const session = this.session;
       if (!auth || !session || session.expiresAt <= this.now() || !sameSecret(hash(auth[1]), session.hash)) {
         throw fault('手机配对已失效，请在桌面获取新配对码。', 401);
       }
       if (req.method === 'GET') {
+        if (url.searchParams.get('view') === 'life') return reply(200, this.service.life.view(url.searchParams.get('id')));
         const { platformWindow, ...view } = this.service.view(url.searchParams.get('id'));
         return reply(200, view);
       }
-      const input = await body(req);
+      const input = await body(req, ocr ? LIFE_OCR_LIMIT : 20_000);
       if (this.session !== session || session.expiresAt <= this.now()) throw fault('手机配对已失效。', 401);
       if (unpair) {
         session.controller.abort();
         this.session = null;
         return reply(200, { ok: true });
       }
-      const result = await this.service.dispatch(input, { signal: session.controller.signal });
+      const result = ocr ? await this.service.life.ocr(input, session.controller.signal) :
+        await this.service.dispatch(input, { signal: session.controller.signal });
       if (this.session !== session || session.expiresAt <= this.now()) throw fault('手机配对已失效。', 401);
       return reply(200, result);
     } catch (error) {

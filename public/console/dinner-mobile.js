@@ -1,4 +1,5 @@
 import { mountDinner } from './dinner-ui.js';
+import { mountLife } from './life-ui.js';
 
 const app = document.getElementById('dinner-mobile-app');
 const pairing = document.getElementById('dinner-pairing');
@@ -44,10 +45,30 @@ function showPairing(message = '') {
 }
 
 function showTasks() {
+  const tabs = document.createElement('nav');
+  tabs.className = 'dinner dinner-actions life-tabs';
+  tabs.setAttribute('aria-label', '生活助手');
+  const views = [['dinner', '晚饭与晚间安排', mountDinner], ['life', '生活日程', mountLife]];
   const view = document.createElement('div');
-  app.replaceChildren(view);
+  app.replaceChildren(tabs, view);
   unpair.hidden = false;
-  dispose = mountDinner(view, request, { onAuthLost: showPairing });
+  for (const [key, label, mount] of views) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'dinner-button';
+    button.dataset.mobilePage = key;
+    button.textContent = label;
+    button.setAttribute('aria-pressed', 'false');
+    button.addEventListener('click', () => {
+      if (button.getAttribute('aria-pressed') === 'true') return;
+      dispose?.();
+      for (const tab of tabs.children) tab.setAttribute('aria-pressed', String(tab === button));
+      view.replaceChildren();
+      dispose = mount(view, request, { onAuthLost: showPairing });
+    });
+    tabs.append(button);
+  }
+  tabs.firstElementChild.click();
 }
 
 form.addEventListener('submit', async event => {

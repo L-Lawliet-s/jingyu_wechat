@@ -18,8 +18,8 @@ function renderer(options) {
 
 const run = (win, source) => win.webContents.executeJavaScript(source, true);
 const click = (win, selector) => run(win, `document.querySelector(${JSON.stringify(selector)}).click()`);
-const form = (win, action, inputs) => run(win, `(() => {
-  const form = document.querySelector('[data-dinner-form="${action}"]');
+const form = (win, action, inputs, section = 'dinner') => run(win, `(() => {
+  const form = document.querySelector('[data-${section}-form="${action}"]');
   for (const [name, value] of Object.entries(${JSON.stringify(inputs)})) {
     const field = form.elements.namedItem(name);
     if (field.type === 'checkbox') field.checked = value;
@@ -34,7 +34,7 @@ async function ready(win, expression) {
     if (await run(win, `Boolean(${expression})`)) return;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  throw Error('Renderer state timed out: ' + expression + ' · ' + (await run(win, 'document.querySelector("[data-dinner-message],#dinner-pair-status")?.textContent ?? ""')).slice(0, 120));
+  throw Error('Renderer state timed out: ' + expression + ' · ' + (await run(win, 'document.querySelector("[data-dinner-message],[data-life-status],#dinner-pair-status")?.textContent ?? ""')).slice(0, 120));
 }
 
 app.whenReady().then(async () => {
@@ -92,10 +92,26 @@ app.whenReady().then(async () => {
     await form(phone, 'companion-settings', { task: card.id, mode: 'daily' });
     await ready(desk, 'document.querySelector(".dinner-hero").textContent.includes("跨端测试卡")');
     assert(await run(desk, 'document.querySelector(".dinner-hero").textContent.includes("小潮")'));
+    await click(desk, '[data-page=life]');
+    await ready(desk, 'document.querySelector("[data-life-form=notice]")');
+    await click(phone, '[data-mobile-page=life]');
+    await ready(phone, 'document.querySelector("[data-life-form=notice]")');
+    await form(phone, 'notice', { text: '预约 2090-11-18T16:00，地点：实验室，请携带校园卡。' }, 'life');
+    await ready(phone, 'document.querySelector("[data-life-form=save] [name=start]").value === "2090-11-18T16:00"');
+    await form(phone, 'save', { title:'跨端预约', keep:true }, 'life');
+    await ready(desk, 'document.querySelector("[data-life-select]").options.length === 2');
+    const life = dining.life.view().tasks[0];
+    await run(desk, `(() => { const picker = document.querySelector('[data-life-select]'); picker.value=${JSON.stringify(life.id)}; picker.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    await ready(desk, 'document.querySelector("#life-task h2").textContent === "跨端预约"');
+    await form(desk, 'save', { start:'2090-11-18T16:30' }, 'life');
+    await ready(phone, 'document.querySelector("[data-life-form=save] [name=start]").value === "2090-11-18T16:30"');
+    assert(await run(phone, 'document.documentElement.scrollWidth <= innerWidth'));
+    await form(phone, 'checkin', { energy:'low', pressure:'high', available:'25' }, 'life');
+    await ready(phone, 'document.querySelector("[data-life-action^=suggest]")');
     await click(phone, '#dinner-unpair');
     await ready(phone, 'document.querySelector("#dinner-pair-form")');
     assert.equal(gateway.status().connected, false);
-    console.log(JSON.stringify({ desktopEntry: true, mobilePairing: true, taskShared: true, revisionSynced: true, feedbackSaved: true, mobileFits: true, cardSynced: true, unpairRevoked: true }));
+    console.log(JSON.stringify({ desktopEntry: true, mobilePairing: true, taskShared: true, revisionSynced: true, feedbackSaved: true, mobileFits: true, cardSynced: true, lifeSynced:true, lifeSuggestion:true, unpairRevoked: true }));
   } finally {
     desk.destroy(); phone.destroy(); gateway.close(); dining.close();
     if (consoleServer.server.listening) {

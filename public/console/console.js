@@ -1,5 +1,6 @@
 import {createJingyuUI} from './jingyu.js';
 import {mountDinner} from './dinner-ui.js';
+import {mountLife} from './life-ui.js';
 import {sessionUsage} from './session-usage.js';
 import {consoleRoute,routeKey,SETTINGS_SECTIONS} from './layout-model.mjs';
 import {createWorkspaceLayout} from './workspace-layout.js';
@@ -39,6 +40,7 @@ const pageScroll=new Map();let currentRoute={page:'overview'};
 function selectRoute(hash){currentRoute=consoleRoute(hash);state.page=currentRoute.page;if(currentRoute.page==="memory")state.memorySection=currentRoute.section;state.settingsSection=currentRoute.page==='settings'?currentRoute.section:state.settingsSection;state.stickerSection=currentRoute.page==='stickers'?currentRoute.section:state.stickerSection;state.capabilitySection=currentRoute.page==='extensions'?currentRoute.section:state.capabilitySection;if(currentRoute.detail)state.chatDetailTab=currentRoute.detail;}
 const pages = {
   dinner: ['晚饭与晚间安排', '从选餐、核对费用到反馈，下次还能接着用。'],
+  life: ['生活日程', '整理通知、确认待办和提醒，按自己的节奏安排。'],
   jingyu:['鲸鱼账户与记忆','API 余额、主人绑定与单向共享记忆。'],
   settings: ['设置', '默认行为、连接与诊断按用途分类。'],
   setup: ['首次配置', '按下面的步骤连接自己的微信与模型，无需命令行。'],
@@ -435,7 +437,7 @@ async function renderPage() {
   document.querySelectorAll('[data-page]').forEach(a => page === a.dataset.page ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
   let markup;
   try {
-    if (page === 'dinner') markup = '<div id="dinner-workspace" class="dinner"></div>';
+    if (page === 'dinner' || page === 'life') markup = '<div id="dinner-workspace" class="dinner"></div>';
     if (['chats','settings','extensions','stickers','memory'].includes(page)) $('#page-body').innerHTML = '<div class="loading-state">正在读取…</div>';
     if (page === 'jingyu') markup = await jingyuUI.page();
     if (page === 'overview') markup = overviewPage();
@@ -454,6 +456,7 @@ async function renderPage() {
   if(page==='setup')markup+=`<section class="card process-recovery-card">${header('端口与进程排查','遇到端口占用、其他微信实例或连接失败时，先检查正在运行的进程。','','tool')}<p class="card-description">检查不会停止程序。只有选中具体进程并再次确认后才会停止；随后可重新打开微信或 DSH，再重试配置。</p><button class="button" data-process-recovery>${icon('search')}检查端口与进程</button></section>`;
   $('#page-body').innerHTML = markup; updateDraftUI(); paintStatus(); paintReaderSetup();
   if (page === 'dinner') disposeDinner = mountDinner($('#dinner-workspace'), api, { desktop: true });
+  if (page === 'life') disposeDinner = mountLife($('#dinner-workspace'), api, { desktop: true });
   if(page==='jingyu')jingyuUI.mount(renderPage);
   if(page==='memory'){if(state.memorySection==='notebook')fishNotebookUI.mount();else memoryUI.mount();}
   if(page==='stickers'&&state.stickerSection==='library')stickerManagerUI.mount();
