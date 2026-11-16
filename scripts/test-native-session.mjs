@@ -269,7 +269,13 @@ test('different role cards share permitted facts and private companion chat stil
  const store=new JingyuStore(f.dir,account);store.saveSettings({ownerWxid:owner,sharedMemoryEnabled:true,allowGroupShared:false});store.saveMemory({chat:actorChat(owner),actor:owner,text:'主人最近在写论文',scope:'owner_shared',desktop:true});store.close();
  const r=await f.start({assistantMessages:[[{type:'text',text:'RESPOND: 在呢，小鲸鱼陪你。'}]]}),body={conversationKey:key,persona:roleA,personaName:'外人卡',pluginSender:contact,assistantSender:contact,message:'你好呀，主人在忙什么'};
  const result=await r.request('/assistant-chat',body);assert(result.text.includes('在呢'));assert(r.calls.model.at(-1).includes(roleA));assert(r.calls.model.at(-1).includes('主人最近在写论文'));assert(!r.calls.model.at(-1).includes(roleB));
+ const {DinnerService}=await import('../packages/jingyu/dinner/service.mjs');
+ const dinner=new DinnerService(f.dir);
+ await dinner.dispatch({action:'card-save',id:'brief',revision:0,title:'简洁试用',style:'brief',address:'铃音同学',length:'short'});
+ dinner.close();
+ const binder=new JingyuStore(f.dir,account);binder.set('companion:'+key,{card:'brief',quiet:false});binder.close();
  const nextRole='新外人卡：温柔的小鲸鱼。';f.setPersona(key,'新外人卡',nextRole);await r.request('/assistant-chat',{...body,persona:nextRole,personaName:'新外人卡',message:'换卡后还记得主人最近忙什么吗'});assert(r.calls.model.at(-1).includes(nextRole));assert(r.calls.model.at(-1).includes('主人最近在写论文'));
+ assert(r.calls.model.at(-1).includes('铃音同学'));assert(r.calls.model.at(-1).includes('优先一两句'));
 });
 
 test('Jingyu native chat filters shared context, exposes scoped tools and rotates after shared revocation',async t=>{

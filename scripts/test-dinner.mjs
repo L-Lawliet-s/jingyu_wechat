@@ -177,6 +177,34 @@ test('a dinner reminder is dismissible, can be paused and reset by a new schedul
   assert.equal(opened.view().dueReminders[0].id, latest.id);
 });
 
+test('card migration, version conflicts, quiet hours and same-day recap work across reopening', async t => {
+  let now = Date.parse('2026-11-16T23:00:00+08:00');
+  const { root, opened, onClose } = service(t, { now: () => now });
+  opened.saveSetting('profile', { style: 'playful', address: '同学' });
+  let settings = opened.view().companion;
+  assert.equal(opened.view().profile.address, '同学');
+  await opened.dispatch({ action: 'create', goal: { ...goal, reminderAt: '2026-11-16T18:30' } });
+  await opened.dispatch({ ...settings, action: 'card-save', title: '轻声提醒', style: 'brief', address: '', length: 'short' });
+  await assert.rejects(opened.dispatch({ ...settings, action: 'companion-settings' }), /另一台/);
+  settings = opened.view().companion;
+  await opened.dispatch({ ...settings, action: 'companion-settings', mode: 'daily', quietStart: '22:00', quietEnd: '07:00' });
+  assert.equal(opened.view().recap, null);
+  assert.deepEqual(opened.view().dueReminders, []);
+  settings = opened.view().companion;
+  await opened.dispatch({ ...settings, action: 'companion-settings', quietStart: '', quietEnd: '' });
+  assert.equal(opened.view().dueReminders.length, 1);
+  const day = opened.view().recap.day;
+  await opened.dispatch({ action: 'recap-snooze', day });
+  assert.equal(opened.view().recap, null);
+  now += 31 * 60_000;
+  await opened.dispatch({ action: 'recap-dismiss', day });
+  opened.close();
+  const second = new DinnerService(root, { now: () => now });
+  onClose(() => second.close());
+  assert.equal(second.view().recap, null);
+  assert(second.view().companion.cards.some(card => card.title === '轻声提醒'));
+});
+
 test('menu parsing and the optional model surface are bounded and require user review', async t => {
   const calls = [];
   const mock = async (url, options) => {

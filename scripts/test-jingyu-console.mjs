@@ -19,7 +19,17 @@ test('native Jingyu routes require the console token and render memory settings 
  const {store}=jingyuFor(root),history=new HistoryStore(root,'a'.repeat(64)),chat=actorChat('wxid_fixture_owner');history.append(chat,{id:'test-thesis',platform:'wechat',kind:'private',sender_id:chat.split(':')[2],conversation_id:chat.split(':')[2],sender_name:'主人',text:'我在写论文',outgoing:false,timestamp:Date.now()/1000});syncConversationMemory(store,history,{allowedChats:[chat]});history.close();
  const automatic=await fetch(base+'/api/jingyu',{headers}).then(r=>r.json());assert.equal(automatic.conversationMemoryCount,1);assert.equal(automatic.settings.conversationMemoryEnabled,true);const memoryId=automatic.conversationMemories[0].id;
  const preview=structuredClone(automatic);preview.conversationMemories[0].text='<img src=x onerror=alert(1)>';preview.conversationMemories[0].person='<svg onload=alert(1)>';
- const escapeHtml=text=>String(text??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');const html=await createJingyuUI({api:async()=>preview,escapeHtml,toast:()=>{}}).page();assert(html.includes('自动聊天记忆'));assert(html.includes('data-jingyu-private-conversation'));assert(!html.includes('<img'));assert(!html.includes('<svg'));assert(html.includes('&lt;img'));
+ const escapeHtml=text=>String(text??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');const html=await createJingyuUI({api:async()=>preview,escapeHtml,toast:()=>{}}).page();assert(html.includes('分人物记忆'));assert(html.includes('data-memory-action="private"'));assert(!html.includes('<img'));assert(!html.includes('<svg'));assert(html.includes('&lt;img'));
+ assert.equal((await post('/api/jingyu/people-memory',{chat})).status,200);
+ assert.equal((await post('/api/jingyu/memory-policy',{confirmedOnly:true})).status,200);
+ assert.equal((await post('/api/jingyu/conversations/share',{id:memoryId,approved:true})).status,200);
+ assert.equal(store.listConversationMemories()[0].approved,1);
+ const configFile=path.join(root,'config/wechatagent.json'), config=JSON.parse(fs.readFileSync(configFile,'utf8'));
+ config.wechat.whitelist.private=[Number(chat.split(':')[2])];fs.writeFileSync(configFile,JSON.stringify(config));
+ assert.equal((await post('/api/dinner',{action:'card-save',id:'brief',revision:0,title:'通话卡',style:'brief',address:'小潮同学',length:'short'})).status,200);
+ assert.equal((await post('/api/jingyu/companion',{chat,card:'brief',quiet:true})).status,200);
+ assert.match(jingyuFor(root).audio.personaFor(chat), /小潮同学/);
+ assert.doesNotMatch(jingyuFor(root).audio.personaFor('wechat:private:2'), /小潮同学/);
  assert.equal((await fetch(base+'/api/jingyu/conversations/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:memoryId})})).status,401);
  assert.equal((await post('/api/jingyu/conversations/private',{id:memoryId})).status,200);assert.equal(store.listConversationMemories()[0].shareable,0);assert.equal((await post('/api/jingyu/conversations/delete',{id:memoryId})).status,200);assert.equal(store.conversationMemoryCount(),0);
  const runtimes=await fetch(base+'/api/python-runtime',{headers}).then(r=>r.json());assert.equal(runtimes.reader.ready,false);assert.equal(runtimes.audio.ready,false);assert.equal(data.audio.settings.python,undefined);assert.equal((await post('/api/jingyu/audio/probe',{python:process.execPath})).status,400);

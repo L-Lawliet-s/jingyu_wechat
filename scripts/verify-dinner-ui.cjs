@@ -21,7 +21,7 @@ const click = (win, selector) => run(win, `document.querySelector(${JSON.stringi
 const form = (win, action, inputs) => run(win, `(() => {
   const form = document.querySelector('[data-dinner-form="${action}"]');
   for (const [name, value] of Object.entries(${JSON.stringify(inputs)})) {
-    const field = form.elements[name];
+    const field = form.elements.namedItem(name);
     if (field.type === 'checkbox') field.checked = value;
     else field.value = value;
     field.dispatchEvent(new Event('input', { bubbles: true }));
@@ -85,10 +85,17 @@ app.whenReady().then(async () => {
     assert.equal(dining.get(local.id).status, 'completed');
     assert.equal(dining.preferences().savedAt, null);
     assert(await run(phone, 'document.documentElement.scrollWidth <= innerWidth'));
+    await run(phone, `(() => { const editor = document.querySelector('[name=cardEditor]'); editor.value = 'new'; editor.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    await form(phone, 'card-save', { title: '跨端测试卡', style: 'playful', address: '小潮', length: 'short' });
+    await ready(phone, 'document.querySelector("[name=cardEditor]").selectedOptions[0].textContent === "跨端测试卡"');
+    const card = dining.companion().cards.at(-1);
+    await form(phone, 'companion-settings', { task: card.id, mode: 'daily' });
+    await ready(desk, 'document.querySelector(".dinner-hero").textContent.includes("跨端测试卡")');
+    assert(await run(desk, 'document.querySelector(".dinner-hero").textContent.includes("小潮")'));
     await click(phone, '#dinner-unpair');
     await ready(phone, 'document.querySelector("#dinner-pair-form")');
     assert.equal(gateway.status().connected, false);
-    console.log(JSON.stringify({ desktopEntry: true, mobilePairing: true, taskShared: true, revisionSynced: true, feedbackSaved: true, mobileFits: true, unpairRevoked: true }));
+    console.log(JSON.stringify({ desktopEntry: true, mobilePairing: true, taskShared: true, revisionSynced: true, feedbackSaved: true, mobileFits: true, cardSynced: true, unpairRevoked: true }));
   } finally {
     desk.destroy(); phone.destroy(); gateway.close(); dining.close();
     if (consoleServer.server.listening) {

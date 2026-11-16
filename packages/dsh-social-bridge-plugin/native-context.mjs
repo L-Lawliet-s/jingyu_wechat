@@ -2,6 +2,7 @@ import {jingyuFor,memoryContext,verifiedPrivateActor,closeJingyu} from '../jingy
 import {bindJingyu} from '../jingyu/dsh-tools.mjs';
 import {syncConversationMemory,conversationQuery} from '../jingyu/conversation-memory.mjs';
 import {bindPlatformTools} from '../jingyu/platform-tools.mjs';
+import {boundCompanion,withCompanionPersona} from '../jingyu/companion.mjs';
 import {AssistantNotifications} from './assistant-notifications.mjs';
 import {apply as applyAssistantToolGuard} from './social-tool-restrict.mjs';
 import {AssistantTasks,ASSISTANT_CONTROLLER,liveTask,taskFault,assistantHelp,formatAssistantTask} from './assistant-tasks.mjs';
@@ -454,7 +455,11 @@ export function apply(ctx, config={}) {
     if(body.workMode!==undefined&&body.workMode!==workMode)throw Error('BEHAVIOR_CHANGE_NOT_ALLOWED');
     const locked=localPersona(root,key);assertLocalPersona(body,locked);
     await modeSlots.select(key,workMode);
-    const persona=locked.persona;
+    let persona=locked.persona;
+    try{if(loadedAccount.id&&fs.existsSync(path.join(root,'state/dinner/dinner.sqlite'))){
+      const {store}=jingyuFor(root,{account:loadedAccount.id});
+      persona=withCompanionPersona(persona,boundCompanion(root,loadedAccount.id,key,store.get('companion:'+key)),key);
+    }}catch{/* An unavailable optional card leaves the verified role in use. */}
     const digest=hash(persona);
     const {sid,agent}=await agentFor(key), session=agent.session;
     if(pending.has(sid) || agent.status==='running')throw new Error('session_busy');

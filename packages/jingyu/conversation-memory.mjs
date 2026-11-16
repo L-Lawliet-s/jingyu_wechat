@@ -61,17 +61,19 @@ export function searchConversationMemory(store,{chat,actor,query='',limit=6,pers
   // Scope filtering happens in SQL before ranking and bounded projection.
   const terms=queryTerms(query),normalized=query.normalize('NFKC').toLowerCase();
   const named=person.trim().normalize('NFKC').toLowerCase();
-  const where=`binding=? AND hidden=0 AND (?=1 OR chat=? OR (chat=? AND shareable=1 AND ?=1))
+  const where=`binding=? AND hidden=0 AND ((?=1 AND NOT EXISTS (SELECT 1 FROM memory_contact_access a WHERE a.binding=m.binding AND a.chat=m.chat)) OR chat=? OR
+    (chat=? AND shareable=1 AND ?=1 AND coalesce((SELECT approved FROM conversation_shares s
+      WHERE s.binding=m.binding AND s.chat=m.chat AND s.record=m.record),?)=1))
     AND (?='' OR instr(lower(person),?)>0 OR (?='主人' AND chat=?))`;
-  const access=[prefs.ownerWxid,owner?1:0,chat,ownerChat,prefs.sharedMemoryEnabled?1:0,named,named,named,ownerChat];
+  const access=[prefs.ownerWxid,owner?1:0,chat,ownerChat,prefs.sharedMemoryEnabled?1:0,store.get('confirmedMemoryOnly',false)?0:1,named,named,named,ownerChat];
   const relevance=terms.map(()=>'(CASE WHEN instr(lower(text),?)>0 THEN 1 ELSE 0 END)').concat("(CASE WHEN length(person)>=2 AND instr(?,lower(CASE WHEN chat=? THEN '主人' ELSE person END))>0 THEN 8 ELSE 0 END)").join('+');
-  let selected=store.db.prepare(`SELECT id,chat,person,text,at,record,${relevance} score FROM conversation_memories WHERE ${where} ORDER BY score DESC,at DESC,record DESC LIMIT ?`).all(...terms,normalized,ownerChat,...access,limit).filter(row=>row.score>0);
+  let selected=store.db.prepare(`SELECT id,chat,person,text,at,record,${relevance} score FROM conversation_memories m WHERE ${where} ORDER BY score DESC,at DESC,record DESC LIMIT ?`).all(...terms,normalized,ownerChat,...access,limit).filter(row=>row.score>0);
   // Everyday questions such as "主人最近忙什么" need the owner's recent
   // self-reports even when they share no keywords with "我在写论文".
   const targetOwner=!owner&&prefs.sharedMemoryEnabled||/主人|最近|近况/.test(query)&&!named;
   if(selected.length<limit){
     const chosen=new Set(selected.map(row=>row.id));
-    const fallback=store.db.prepare(`SELECT id,chat,person,text,at,record FROM conversation_memories WHERE ${where} ORDER BY (CASE WHEN chat=? THEN ? ELSE 0 END) DESC,at DESC,record DESC LIMIT ?`).all(...access,ownerChat,targetOwner?1:0,limit+3).filter(row=>!chosen.has(row.id));
+    const fallback=store.db.prepare(`SELECT id,chat,person,text,at,record FROM conversation_memories m WHERE ${where} ORDER BY (CASE WHEN chat=? THEN ? ELSE 0 END) DESC,at DESC,record DESC LIMIT ?`).all(...access,ownerChat,targetOwner?1:0,limit+3).filter(row=>!chosen.has(row.id));
     selected=[...selected,...fallback.slice(0,Math.min(limit-selected.length,3))];
   }
   return selected.map(({score,record,...row})=>({...row,person:row.chat===ownerChat?'主人':row.person,owner:row.chat===ownerChat,scope:row.chat===ownerChat?(owner?'owner_private':'owner_shared'):'contact_private',source:'conversation',match:score>0?'keyword':'recent',updated:row.at*1000}));

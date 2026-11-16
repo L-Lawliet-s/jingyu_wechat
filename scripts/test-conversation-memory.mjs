@@ -30,6 +30,33 @@ test('ordinary conversations satisfy thesis and rice examples without memory com
   const ctx=memoryContext(f.store,actorChat(owner),owner,'小张吃了什么');assert(ctx.includes('小张'));assert(ctx.includes('我今天吃了米饭'));assert(ctx.includes('time'));assert(ctx.includes('旧近况'));
 });
 
+test('duplicate display names keep distinct memory and explicit grants can be revoked', t => {
+  const f = fixture(t);
+  f.append(owner, '我在准备蓝色论文');
+  f.append(owner, '【私密】红色论文');
+  f.append(a, '午饭吃藜麦', { conversation_name: '同名' });
+  f.append(b, '午饭吃面包', { conversation_name: '同名' });
+  f.store.saveMemory({ chat: actorChat(a), actor: a, text: '藜麦笔记' });
+  f.sync();
+  assert.deepEqual(f.store.memoryPeople().filter(row => row.person === '同名').map(row => row.chat).sort(), [actorChat(a), actorChat(b)].sort());
+  assert.deepEqual(f.store.listConversationMemories(actorChat(a)).map(row => row.text), ['午饭吃藜麦']);
+  const [secret, publicNote] = f.store.listConversationMemories(actorChat(owner));
+  f.store.changeMemoryPolicy({ confirmedOnly: true });
+  assert.throws(() => f.store.reviewConversationShare(secret.id, true), /私密/);
+  assert(!f.recall(a).some(row => row.text.includes('蓝色')));
+  f.store.reviewConversationShare(publicNote.id, true);
+  assert(f.recall(b).some(row => row.text.includes('蓝色')));
+  const epoch = f.store.epoch();
+  f.store.reviewConversationShare(publicNote.id, false);
+  f.store.changeMemoryPolicy({ confirmedOnly: false });
+  f.store.setContactMemoryAccess(actorChat(a), true);
+  assert(!f.recall(b).some(row => row.text.includes('蓝色')));
+  assert(!f.recall(owner).some(row => row.text.includes('藜麦')));
+  assert(f.recall(a).some(row => row.text.includes('藜麦')));
+  assert(!f.recall(b).some(row => row.text.includes('藜麦')));
+  assert(f.store.epoch() > epoch);
+});
+
 test('companion role chat enters the same identity-scoped memory while task logs remain excluded',t=>{
  const f=fixture(t),row=f.append(owner,'我在写论文').row;f.history.append(actorChat(owner)+':assistant-chat',{...row,id:'companion-paper'});f.history.append(actorChat(a)+':assistant',{...row,id:'task-command',conversation_id:actorChat(a).split(':')[2],sender_id:actorChat(a).split(':')[2],text:'任务工作区的内部文件路径'});f.sync();
  assert(f.recall(b).some(item=>item.text==='我在写论文'));assert(!f.recall(owner).some(item=>item.text.includes('内部文件路径')));

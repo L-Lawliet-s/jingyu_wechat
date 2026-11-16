@@ -14,6 +14,7 @@ const cartActionNotes = {
   unknown: '上次操作结果待核对，请先查看购物车再决定。',
 };
 const styleNames = { gentle: '温柔陪伴', playful: '俏皮小鲸鱼', brief: '简洁助手' };
+const reminderVoice = { gentle: '到你设的时间了，准备好再继续。', playful: '小鲸鱼来提醒啦，看看你的晚饭安排。', brief: '晚饭提醒已到。' };
 const copy = {
   gentle: ['今晚想吃点什么？我陪你慢慢选。', '我们对照预算和时间，挑一份合适的吧。', '看看平台上的最终金额和时间，再决定下一步。', '辛苦啦。记下这次的感受，下次选餐会更顺手。'],
   playful: ['肚子提醒你吃饭啦。今晚想吃什么？', '小鲸鱼来算算，哪份晚饭最合适。', '先看一眼购物车，小鲸鱼可不想算漏。', '今晚的饭怎么样？喜欢的话，我们下次还能选它。'],
@@ -168,9 +169,25 @@ export function mountDinner(container, request, { desktop = false, onAuthLost = 
   }
 
   function profilePanel(view) {
+    const settings = view.companion;
+    const cardId = state.cardId ?? settings.task;
+    const card = settings.cards.find(item => item.id === cardId) ?? { id: '', title: '', style: 'gentle', address: '', length: 'normal' };
+    const choices = Object.fromEntries(settings.cards.map(item => [item.id, item.title]));
     const note = view.preferences.savedAt ? `<p class="dinner-muted">已保存偏好 · ${dateLabel(view.preferences.savedAt)}${view.preferences.avoidSpicy ? ' · 不吃辣' : ''}${view.preferences.favorite ? ` · ${escape(view.preferences.favorite.item)}` : ''}</p>` : '';
-    return `<details class="dinner-card"><summary>个性卡与口味记忆</summary>${form('profile',
-      `<div class="dinner-fields">${select('style', '个性卡', styleNames, view.profile.style)}${field('address', '希望怎么称呼你', view.profile.address, 'text', 'maxlength="16"')}</div>`, '保存个性卡')}${note}${note ? actions(button('清除口味记忆', 'clear-preferences')) : ''}</details>`;
+    return `<details class="dinner-card"${state.mode === 'companion' ? ' open' : ''}><summary>个性卡、陪伴与口味记忆</summary>
+      ${select('cardEditor', '编辑个性卡', { ...choices, new: '新建卡片' }, cardId)}
+      ${form('card-save', `<input type="hidden" name="id" value="${escape(card.id)}"><div class="dinner-fields">
+      ${field('title', '卡片名称', card.title, 'text', 'required maxlength="24"')}${select('style', '语气', styleNames, card.style)}
+      ${field('address', '希望怎么称呼你', card.address, 'text', 'maxlength="16"')}
+      ${select('length', '聊天和通话的回复长度', { short: '简短', normal: '自然', detailed: '较详细' }, card.length)}</div>
+      <div data-card-preview class="dinner-muted"></div>`, '保存卡片')}
+      ${card.id && !Object.hasOwn(styleNames, card.id) ? actions(button('删除此卡', 'card-delete', card.id)) : ''}
+      ${form('companion-settings', `<div class="dinner-fields">
+      ${select('task', '晚饭任务卡', choices, settings.task)}${select('reminder', '页面提醒卡', { task: '跟随任务卡', ...choices }, settings.reminder)}
+      ${select('mode', '陪伴方式', { ask: '只在我问时回应', tasks: '只提醒我设定的事项', daily: '任务提醒与每日回顾' }, settings.mode)}
+      ${field('quietStart', '安静开始（北京时间）', settings.quietStart, 'time')}${field('quietEnd', '安静结束（北京时间）', settings.quietEnd, 'time')}</div>
+      ${check('paused', '暂停陪伴提醒', settings.paused ? 'checked' : '')}`, '保存陪伴设置')}
+      ${note}${note ? actions(button('清除口味记忆', 'clear-preferences')) : ''}</details>`;
   }
 
   function desktopPanel(view) {
@@ -253,17 +270,30 @@ export function mountDinner(container, request, { desktop = false, onAuthLost = 
       `${state.sample ? '<p class="dinner-state" data-tone="check">使用虚构菜单和报价</p>' : ''}` +
       (!state.sample && view.preferences.avoidSpicy ? '<p class="dinner-muted">已带入你确认过的口味偏好“不吃辣”，可为本次任务改选。</p>' : '') +
       form('create', goalFields(state.draft ?? {}, view.platforms, false, view.modelReady && !state.sample), '创建任务')) : renderTask(current, view);
-    const reminders = view.dueReminders.length ? panel('晚饭提醒', view.dueReminders.map(item => `<div class="dinner-reminder"><p>${item.sample ? '演示 · ' : ''}${clock(item.at)} · ${escape(item.label || '晚饭待办')}</p>${actions(button('查看', 'show-reminder', item.id), button('标记已读', 'reminder-dismiss', item.id))}</div>`).join('')) : '';
-    container.innerHTML = `<section class="dinner-hero" data-style="${view.profile.style}"><img src="/app-icon.png" alt="" width="46" height="46"><div><span>AI 小鲸鱼 · ${styleNames[view.profile.style]}</span><p>${view.profile.address ? `${escape(view.profile.address)}，` : ''}${greeting}</p></div></section>
+    const reminderCard = view.companion.cards.find(card => card.id === view.companion.reminder) ?? view.profile;
+    const reminders = view.dueReminders.length ? panel('晚饭提醒', `<p>${escape(reminderCard.address ? reminderCard.address + '，' : '')}${reminderVoice[reminderCard.style]}</p>` + view.dueReminders.map(item => `<div class="dinner-reminder"><p>${item.sample ? '演示 · ' : ''}${clock(item.at)} · ${escape(item.label || '晚饭待办')}</p>${actions(button('查看', 'show-reminder', item.id), button('标记已读', 'reminder-dismiss', item.id))}</div>`).join('')) : '';
+    const recap = view.recap ? panel('今日晚饭回顾', `<p>今天已结束 ${view.recap.completed} 项，还有 ${view.recap.pending} 项进行中。</p>` +
+      actions(button('稍后 30 分钟', 'recap-snooze'), button('今天已读', 'recap-dismiss'))) : '';
+    container.innerHTML = `<section class="dinner-hero" data-style="${view.profile.style}"><img src="/app-icon.png" alt="" width="46" height="46"><div><span>AI 小鲸鱼 · ${escape(view.profile.title)}</span><p>${view.profile.address ? `${escape(view.profile.address)}，` : ''}${greeting}</p></div></section>
       <div class="dinner-toolbar">${actions(button('新建任务', 'new', '', !current && !state.sample), button('试用演示', 'sample'), button('同步', 'refresh'))}
       ${view.tasks.length ? `<label>最近任务<select data-dinner-select><option value="">选择任务</option>${view.tasks.map(row => `<option value="${escape(row.id)}" ${row.id === state.id ? 'selected' : ''}>${row.sample ? '演示 · ' : ''}${escape(row.goal.slice(0, 44))} · ${statuses[row.status]}</option>`).join('')}</select></label>` : ''}</div>
       <p data-dinner-message class="dinner-message" role="status" aria-live="polite" hidden></p>
-      <div class="dinner-content">${reminders}${intro}${profilePanel(view)}${desktopPanel(view)}</div>`;
+      <div class="dinner-content">${reminders}${recap}${intro}${profilePanel(view)}${desktopPanel(view)}</div>`;
+    previewCard();
+  }
+
+  function previewCard() {
+    const form = container.querySelector('[data-dinner-form="card-save"]');
+    if (!form) return;
+    const { style, address } = form.elements;
+    form.querySelector('[data-card-preview]').textContent = [
+      copy[style.value][0], copy[style.value][1], reminderVoice[style.value],
+    ].map(line => (address.value ? address.value + '，' : '') + line).join('　/　');
   }
 
   function signature(view) {
     return JSON.stringify([view.task?.revision, view.task?.candidates.map(row => row.decision), view.tasks, view.dueReminders,
-      view.profile, view.preferences, view.modelReady, view.mobile]);
+      view.companion, view.recap, view.preferences, view.modelReady, view.mobile]);
   }
 
   async function sync(id = state.id, { poll = false, initial = false } = {}) {
@@ -312,11 +342,17 @@ export function mountDinner(container, request, { desktop = false, onAuthLost = 
 
   container.addEventListener('input', event => {
     if (event.target.matches('[data-dinner-select]')) return;
+    if (event.target.closest('[data-dinner-form="card-save"]')) previewCard();
     if (event.target.name === 'menuText') state.menu = event.target.value;
     if (event.target.closest('form') || event.target.name === 'menuText') state.dirty = true;
   });
 
   container.addEventListener('change', event => {
+    if (event.target.name === 'cardEditor') {
+      if (canDiscard()) { reset(); state.mode = 'companion'; state.cardId = event.target.value; render(); }
+      else event.target.value = state.cardId ?? state.view.companion.task;
+      return;
+    }
     if (!event.target.matches('[data-dinner-select]')) return;
     if (!canDiscard()) { event.target.value = state.id; return; }
     const next = event.target.value;
@@ -337,12 +373,18 @@ export function mountDinner(container, request, { desktop = false, onAuthLost = 
       if (action === 'save-candidate') body = { ...payload(), candidateId: state.candidateId, candidate: values };
       if (action === 'confirm') body.candidateId = state.choice;
       if (action === 'platform-add') body.candidateId = task()?.selected?.id;
+      if (['card-save','companion-settings'].includes(action)) body = { ...values, revision: state.view.companion.revision };
+      if (action === 'companion-settings') body.paused = values.paused === 'on';
       const result = await post(action, body);
       const id = action === 'create' ? result.id : state.id;
       const nextPreview = action === 'save-candidate' && state.previewIndex !== null
         ? { menu: state.menu, items: state.preview.filter((_, index) => index !== state.previewIndex) } : null;
       reset();
       if (action === 'mobile-start') state.mode = 'pairing';
+      if (['card-save','companion-settings'].includes(action)) {
+        state.mode = 'companion';
+        if (action === 'card-save') state.cardId = values.id || result.companion.cards.at(-1).id;
+      }
       if (nextPreview?.items.length) Object.assign(state, { mode: 'menu', menu: nextPreview.menu, preview: nextPreview.items });
       await sync(id);
       if (action === 'platform-add') message(task().events.at(-1).note);
@@ -398,6 +440,15 @@ export function mountDinner(container, request, { desktop = false, onAuthLost = 
         return;
       }
       if (action === 'reminder') { reminderFile(task()); return; }
+      if (action === 'card-delete') {
+        if (!window.confirm('删除这张卡片？引用它的会话将使用原角色卡。')) return;
+        await post(action, { id, revision: state.view.companion.revision });
+        reset(); state.mode = 'companion'; state.cardId = undefined; await sync(); return;
+      }
+      if (action === 'recap-dismiss' || action === 'recap-snooze') {
+        if (!canDiscard()) return;
+        await post(action, { day: state.view.recap.day }); reset(); await sync(); return;
+      }
       if (action === 'show-reminder') { if (canDiscard()) { reset(); await sync(id); } return; }
       if (action === 'reminder-dismiss') {
         if (!canDiscard()) return;

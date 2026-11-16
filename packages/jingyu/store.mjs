@@ -26,7 +26,9 @@ export class JingyuStore{
       CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY,at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS reminders(id TEXT PRIMARY KEY,config TEXT NOT NULL,next_at INTEGER NOT NULL,enabled INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS conversation_memories(id TEXT PRIMARY KEY,binding TEXT NOT NULL,chat TEXT NOT NULL,person TEXT NOT NULL,text TEXT NOT NULL,at REAL NOT NULL,record INTEGER NOT NULL,shareable INTEGER NOT NULL,hidden INTEGER NOT NULL DEFAULT 0);
-      CREATE INDEX IF NOT EXISTS conversation_memories_access ON conversation_memories(binding,chat,hidden,at DESC);`);
+      CREATE INDEX IF NOT EXISTS conversation_memories_access ON conversation_memories(binding,chat,hidden,at DESC);
+      CREATE TABLE IF NOT EXISTS conversation_shares(binding TEXT, chat TEXT, record INTEGER, approved INTEGER NOT NULL, PRIMARY KEY(binding,chat,record));
+      CREATE TABLE IF NOT EXISTS memory_contact_access(binding TEXT, chat TEXT, PRIMARY KEY(binding,chat));`);
     if(!this.db.prepare('PRAGMA table_info(memories)').all().some(row=>row.name==='owner_binding')){
       this.transaction(()=>{if(!this.db.prepare('PRAGMA table_info(memories)').all().some(row=>row.name==='owner_binding')){this.db.exec("ALTER TABLE memories ADD COLUMN owner_binding TEXT NOT NULL DEFAULT ''");this.db.prepare('UPDATE memories SET owner_binding=?').run(this.settings().ownerWxid);}});
     }
@@ -72,7 +74,8 @@ export class JingyuStore{
     const shared=owner||prefs.sharedMemoryEnabled&&(!chat.includes(':group:')||prefs.allowGroupShared);
     // Enforce scope in SQL BEFORE scoring or returning candidates.
     const rows=this.db.prepare(`SELECT id,text,scope,updated,chat FROM memories WHERE status='published' AND
-      ((scope='owner_shared' AND ?=1 AND author=?) OR (scope='owner_private' AND ?=1 AND author=? AND chat=?) OR (scope='contact_private' AND ((chat=? AND author=? AND ?=1) OR (?=1 AND owner_binding=?))))
+      ((scope='owner_shared' AND ?=1 AND author=?) OR (scope='owner_private' AND ?=1 AND author=? AND chat=?) OR (scope='contact_private' AND ((chat=? AND author=? AND ?=1) OR (?=1 AND owner_binding=? AND NOT EXISTS
+        (SELECT 1 FROM memory_contact_access AS access WHERE access.binding=memories.owner_binding AND access.chat=memories.chat)))))
       ORDER BY updated DESC LIMIT 500`).all(shared?1:0,prefs.ownerWxid,owner?1:0,prefs.ownerWxid,chat,chat,actor,validActor(actor)&&actorChat(actor)===chat?1:0,owner?1:0,prefs.ownerWxid);
     const terms=query.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu)??[];
     const grams=[...new Set(terms.flatMap(t=>t.length>2?Array.from({length:t.length-1},(_,i)=>t.slice(i,i+2)):[t]))].slice(0,60);
@@ -81,7 +84,43 @@ export class JingyuStore{
     return [...manual.slice(0,Math.min(3,limit)),...automatic,...manual.slice(Math.min(3,limit))].slice(0,limit);
   }
   conversationPerson(chat){return this.db.prepare('SELECT person FROM conversation_memories WHERE binding=? AND chat=? ORDER BY at DESC LIMIT 1').get(this.settings().ownerWxid,chat)?.person??chat;}
-  listConversationMemories(){return this.db.prepare('SELECT id,chat,person,text,at,shareable FROM conversation_memories WHERE binding=? AND hidden=0 ORDER BY at DESC,record DESC LIMIT 100').all(this.settings().ownerWxid);}
+  listConversationMemories(chat=''){
+    return this.db.prepare(`SELECT id,chat,person,text,at,shareable,(SELECT approved FROM conversation_shares s
+      WHERE s.binding=m.binding AND s.chat=m.chat AND s.record=m.record) AS approved
+      FROM conversation_memories m WHERE binding=? AND hidden=0 AND (?='' OR chat=?) ORDER BY at DESC,record DESC LIMIT 100`)
+      .all(this.settings().ownerWxid,chat,chat);
+  }
+  memoryPeople(){
+    const binding=this.settings().ownerWxid;
+    const rows=this.db.prepare(`SELECT m.chat, count(*) AS count, EXISTS(SELECT 1 FROM memory_contact_access a WHERE a.binding=m.binding AND a.chat=m.chat) AS selfOnly
+      FROM conversation_memories m WHERE m.binding=? AND m.hidden=0 GROUP BY m.chat ORDER BY max(m.at) DESC`).all(binding);
+    return rows.map(row=>({...row,person:row.chat===actorChat(binding)?'主人':this.conversationPerson(row.chat)}));
+  }
+  changeMemoryPolicy({confirmedOnly}){
+    if(typeof confirmedOnly!=='boolean')throw fault('请选择主人原话的共享方式。');
+    this.transaction(()=>{this.set('confirmedMemoryOnly',confirmedOnly);this.resetMemoryAccess();});
+  }
+  resetMemoryAccess(){this.bumpEpoch();this.set('memoryResetAt',Date.now());}
+  reviewConversationShare(id,approved){
+    if(typeof id!=='string'||id.length>150||typeof approved!=='boolean')throw fault('请选择原话与授权状态。');
+    this.transaction(()=>{
+      const binding=this.settings().ownerWxid, chat=actorChat(binding);
+      const row=this.db.prepare('SELECT record FROM conversation_memories WHERE id=? AND binding=? AND chat=? AND hidden=0 AND shareable=1').get(id,binding,chat);
+      if(!binding||!row)throw fault('只能确认未设为私密的主人原话。',403);
+      this.db.prepare(`INSERT INTO conversation_shares VALUES(?,?,?,?) ON CONFLICT(binding,chat,record)
+        DO UPDATE SET approved=excluded.approved`).run(binding,chat,row.record,approved?1:0);
+      this.resetMemoryAccess();
+    });
+  }
+  setContactMemoryAccess(chat,selfOnly){
+    const binding=this.settings().ownerWxid;
+    if(!binding||!validChat(chat)||!chat.startsWith('wechat:private:')||chat===actorChat(binding)||typeof selfOnly!=='boolean')throw fault('请选择一个非主人的私聊。');
+    this.transaction(()=>{
+      if(selfOnly)this.db.prepare('INSERT OR IGNORE INTO memory_contact_access VALUES(?,?)').run(binding,chat);
+      else this.db.prepare('DELETE FROM memory_contact_access WHERE binding=? AND chat=?').run(binding,chat);
+      this.resetMemoryAccess();
+    });
+  }
   conversationMemoryCount(){return this.db.prepare('SELECT count(*) n FROM conversation_memories WHERE binding=? AND hidden=0').get(this.settings().ownerWxid).n;}
   restrictConversationMemory(id,remove=false){
     if(typeof id!=='string'||id.length>150)throw fault('请选择有效聊天记忆。');

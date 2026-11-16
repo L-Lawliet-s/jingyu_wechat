@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { Billing } from '../billing.mjs';
 import { fault, hash } from '../store.mjs';
 import { DinnerPlanner } from './planner.mjs';
+import { companionDefaults, quietNow, updateCompanion } from '../companion.mjs';
 import {
   assessQuote, boundedInteger, cents, localTime, orderedCandidates, plainObject,
   PLATFORMS, SAMPLE_MENU, SPICE, STYLES, text, validateCandidate, validateGoal,
@@ -66,6 +67,37 @@ export class DinnerService {
 
   preferences() { return this.setting('preferences', defaultPreferences); }
 
+  companion() { return this.setting('companion', companionDefaults(this.setting('profile', defaultProfile))); }
+
+  changeCompanion(body) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const current = this.companion();
+      let next;
+      if (body.action === 'profile') {
+        // Keep clients from phase one working. Update the selected built-in card.
+        const card = current.cards.find(row => row.id === body.style);
+        if (!STYLES.includes(body.style) || !card) throw fault('请选择个性卡。');
+        next = updateCompanion(current, { ...card, action: 'card-save', address: body.address ?? '', revision: current.revision });
+        next.task = body.style;
+      } else {
+        next = updateCompanion(current, body);
+      }
+      this.saveSetting('companion', next);
+      this.db.exec('COMMIT');
+      return { companion: next };
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+
+  recap(recent, companion, now) {
+    const day = localTime(now).slice(0, 10), current = this.setting('recap', {});
+    if (companion.mode !== 'daily' || companion.paused || quietNow(companion, now) ||
+        (current.day === day && (current.dismissed || current.until > now))) return null;
+    const today = recent.filter(task => !task.sample && localTime(task.updated).slice(0, 10) === day);
+    return today.length ? { day, completed: today.filter(task => task.status === 'completed').length,
+      pending: today.filter(task => !terminal.has(task.status)).length } : null;
+  }
+
   get(id) {
     if (!uuid.test(id ?? '')) throw fault('请选择一个晚饭任务。');
     const row = this.db.prepare('SELECT payload FROM dinner_tasks WHERE id=?').get(id);
@@ -82,7 +114,8 @@ export class DinnerService {
     const recent = this.db.prepare('SELECT payload FROM dinner_tasks ORDER BY updated DESC,rowid DESC LIMIT 60').all().map(({ payload }) => JSON.parse(payload));
     const tasks = recent.map(({ id, goal, status, sample, updated }) => ({ id, goal: goal.goal, status, sample, updated }));
     const now = this.now();
-    const dueReminders = recent.filter(task => !terminal.has(task.status) && task.goal.reminderAt && task.goal.reminderAt <= now &&
+    const companion = this.companion(), profile = companion.cards.find(card => card.id === companion.task);
+    const dueReminders = (companion.paused || companion.mode === 'ask' || quietNow(companion, now) ? [] : recent).filter(task => !terminal.has(task.status) && task.goal.reminderAt && task.goal.reminderAt <= now &&
       !task.reminder?.paused && !task.reminder?.dismissedAt).slice(0, 5).map(task => ({
         id: task.id, revision: task.revision, sample: task.sample, at: task.goal.reminderAt, label: task.goal.activity,
       }));
@@ -90,7 +123,7 @@ export class DinnerService {
     if (task) task.candidates = orderedCandidates(task.candidates, task.goal, now, task.sample ? null : this.preferences());
     return {
       tasks, task, dueReminders, platforms: PLATFORMS,
-      profile: this.setting('profile', defaultProfile),
+      profile, companion, recap: this.recap(recent, companion, now),
       preferences: this.preferences(),
       modelReady: this.billing.configured(),
       platformWindow: Boolean(this.browser),
@@ -366,11 +399,19 @@ export class DinnerService {
       case 'reminder-resume':
       case 'reminder-dismiss': return this.changeReminder(body);
       case 'remove-task': return this.removeTask(body);
-      case 'profile': {
-        if (!STYLES.includes(body.style)) throw fault('请选择个性卡。');
-        const profile = { style: body.style, address: text(body.address ?? '', 16, '称呼') };
-        this.saveSetting('profile', profile);
-        return { profile };
+      case 'profile':
+      case 'card-save':
+      case 'card-delete':
+      case 'companion-settings': return this.changeCompanion(body);
+      case 'recap-dismiss':
+      case 'recap-snooze': {
+        const now = this.now(), day = localTime(now).slice(0, 10);
+        if (body.day !== day) throw fault('日期已变化，请同步。', 409);
+        const before = this.setting('recap', {});
+        if (before.day !== day || !before.dismissed) this.saveSetting('recap', {
+          day, dismissed: body.action === 'recap-dismiss', until: now + 30 * 60_000,
+        });
+        return { ok: true };
       }
       case 'clear-preferences':
         this.saveSetting('preferences', defaultPreferences);

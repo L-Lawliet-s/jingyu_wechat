@@ -7,6 +7,7 @@ import {CallSession} from './call-session.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {selectRoleText} from '../../components/qq-bridge/src/role-card.js';
+import {boundCompanion,withCompanionPersona} from './companion.mjs';
 
 const instances=new Map();
 export function closeJingyu(root){for(const [key,service]of instances)if(key.startsWith(root+'\0')){service.calls.close();service.audio.stop();service.store.close();instances.delete(key);}}
@@ -19,8 +20,13 @@ export function jingyuFor(root,options={}){
       const file=path.join(root,'config/wechatagent.json');const config=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'')):{};
       const name=config.persona?.chats?.[chat]??config.persona?.default;
       const fallback='你是可爱温柔的小鲸鱼 AI。'+(chat===actorChat(store.settings().ownerWxid)?'称呼对方主人。':'与联系人自然交流，不把普通联系人叫主人。');
-      if(typeof name!=='string'||/[\\/\0]/.test(name)||name.includes('..'))return fallback;
-      const role=path.join(root,'roles',name+'.md');return fs.existsSync(role)?selectRoleText(fs.readFileSync(role,'utf8'),'v2'):fallback;
+      let persona=fallback;
+      if(typeof name==='string'&&!/[\\/\0]/.test(name)&&!name.includes('..')){
+        const role=path.join(root,'roles',name+'.md');
+        if(fs.existsSync(role))persona=selectRoleText(fs.readFileSync(role,'utf8'),'v2');
+      }
+      const companion=boundCompanion(root,account,chat,store.get('companion:'+chat));
+      return withCompanionPersona(companion ? persona.slice(0,4600) : persona,companion,chat);
     }});instances.set(key,{store,billing,audio,calls:new CallSession(store,audio,{...options,root}),platforms:new PlatformService(store,options)});
   }const service=instances.get(key);if(options.browser)service.platforms.browser=options.browser;return service;
 }

@@ -4,11 +4,32 @@ import {jingyuFor} from './service.mjs';
 import {actorChat,fault} from './store.mjs';
 import {StudyReminders} from './reminders.mjs';
 import {pythonStatus} from './python-runtime.mjs';
+import {companionLibrary} from './companion.mjs';
 
 export async function jingyuConsole(root,route,method,body={},options={}){
  const {store,billing,audio,platforms,calls}=jingyuFor(root,options);
  const configFile=path.join(root,'config/wechatagent.json');const config=fs.existsSync(configFile)?JSON.parse(fs.readFileSync(configFile,'utf8').replace(/^\uFEFF/,'')):{};
  const chats=(config.wechat?.whitelist?.private??[]).map(id=>'wechat:private:'+id),reminders=new StudyReminders(store);
+ const cardChats=[...chats,...(config.wechat?.whitelist?.groups??[]).map(id=>'wechat:group:'+id)];
+ if(route==='/api/jingyu/companion'&&method==='GET'){
+   return {cards:companionLibrary(root).cards, chats:cardChats.map(chat=>({chat,binding:store.get('companion:'+chat)}))};
+ }
+ if(route==='/api/jingyu/companion'&&method==='POST'){
+   if(!cardChats.includes(body.chat)||typeof body.quiet!=='boolean')throw fault('请选择已允许的微信聊天。');
+   if(body.card!==''&&!companionLibrary(root).cards.some(card=>card.id===body.card))throw fault('个性卡已删除，请重新选择。');
+   store.set('companion:'+body.chat,body.card?{card:body.card,quiet:body.quiet}:null);
+   return {ok:true};
+ }
+ if(route==='/api/jingyu/people-memory'&&method==='POST'){
+   if(body.chat&&!store.memoryPeople().some(person=>person.chat===body.chat))throw fault('未找到此人物的聊天记忆。',404);
+   return {rows:store.listConversationMemories(body.chat??'')};
+ }
+ if(route==='/api/jingyu/memory-policy'&&method==='POST'){store.changeMemoryPolicy(body);return {ok:true};}
+ if(route==='/api/jingyu/memory-contact'&&method==='POST'){
+   if(!chats.includes(body.chat)&&!store.memoryPeople().some(person=>person.chat===body.chat))throw fault('请选择已允许或已有记忆的私聊。');
+   store.setContactMemoryAccess(body.chat,body.selfOnly);return {ok:true};
+ }
+ if(route==='/api/jingyu/conversations/share'&&method==='POST'){store.reviewConversationShare(body.id,body.approved);return {ok:true};}
  if(route.startsWith('/api/jingyu/call/')&&body.account!==undefined&&body.account!==store.account)throw fault('微信账号已切换。',409);
  if(route==='/api/jingyu/platform'&&method==='POST')return platforms.run(body);
  if(route==='/api/jingyu/call/status'&&method==='GET')return calls.status();
@@ -20,7 +41,7 @@ export async function jingyuConsole(root,route,method,body={},options={}){
  if(route==='/api/jingyu/call/stop-listening'&&method==='POST')return calls.stopListening();
  if(route==='/api/jingyu/call/hangup'&&method==='POST')return calls.hangup();
  if(route==='/api/jingyu/call/reset'&&method==='POST')return calls.reset(body.confirmed);
- if(route==='/api/jingyu'&&method==='GET')return {settings:store.settings(),keyConfigured:billing.configured(),memories:store.listMemories(),conversationMemories:store.listConversationMemories(),conversationMemoryCount:store.conversationMemoryCount(),reminders:reminders.list(),chats,calls:calls.status(),epoch:store.epoch(),balance:await billing.balance(),audio:{settings:audio.settings(),status:audio.status(),runtime:pythonStatus(root,'audio')},capabilities:{memory:true,conversationMemory:true,billing:true,audio:'realtime-driver',pat:false,voiceMessage:false,voiceCall:'probe-required',videoCall:'probe-required'}};
+ if(route==='/api/jingyu'&&method==='GET')return {settings:store.settings(),ownerChat:actorChat(store.settings().ownerWxid),confirmedMemoryOnly:store.get('confirmedMemoryOnly',false),memoryPeople:store.memoryPeople(),keyConfigured:billing.configured(),memories:store.listMemories(),conversationMemories:store.listConversationMemories(),conversationMemoryCount:store.conversationMemoryCount(),reminders:reminders.list(),chats,calls:calls.status(),epoch:store.epoch(),balance:await billing.balance(),audio:{settings:audio.settings(),status:audio.status(),runtime:pythonStatus(root,'audio')},capabilities:{memory:true,conversationMemory:true,billing:true,audio:'realtime-driver',pat:false,voiceMessage:false,voiceCall:'probe-required',videoCall:'probe-required'}};
  if(route==='/api/jingyu/audio/settings'&&method==='POST')return {ok:true,settings:audio.save(body)};
  if(route==='/api/jingyu/audio/status'&&method==='GET')return audio.status();
  if(route==='/api/jingyu/audio/sample'&&method==='POST')return audio.sample(body.voice??{});
