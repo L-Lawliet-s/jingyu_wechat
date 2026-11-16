@@ -72,7 +72,9 @@ def main():
                 texts = [window.Name or ""] + [control.Name or "" for control, _ in nodes]
                 # Incoming calls are accepted only when their actual peer is
                 # visible; an unrelated ringing window cannot match a task.
-                if peer and not any(peer == text.strip() or peer in text and len(text) < len(peer)+20 for text in texts):
+                peer_label = (re.compile(rf"^{re.escape(peer)}(?:\s*[（(]?(?:邀请你(?:进行)?|发起(?:了)?|的)?"
+                                         r"(?:语音|视频)通话[）)]?)?$") if peer else None)
+                if peer_label and not any(peer_label.fullmatch(text.strip()) for text in texts):
                     continue
                 return window, nodes, texts
             except Exception:

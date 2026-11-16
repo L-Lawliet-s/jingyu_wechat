@@ -5,13 +5,14 @@ import {AudioSession} from './audio-session.mjs';
 import {PlatformService} from './platform-service.mjs';
 import {CallSession} from './call-session.mjs';
 import {TripService} from './trip.mjs';
+import {WeChatMediaSession} from './wechat-media.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {selectRoleText} from '../../components/qq-bridge/src/role-card.js';
 import {boundCompanion,withCompanionPersona} from './companion.mjs';
 
 const instances=new Map();
-export function closeJingyu(root){for(const [key,service]of instances)if(key.startsWith(root+'\0')){service.calls.close();service.audio.stop();service.store.close();instances.delete(key);}}
+export function closeJingyu(root){for(const [key,service]of instances)if(key.startsWith(root+'\0')){service.media.close();service.calls.close();service.audio.stop();service.store.close();instances.delete(key);}}
 export function jingyuFor(root,options={}){
   const account=options.account??activeReaderAccount(root).id;
   if(!account)throw fault('请先连接并验证微信账号，再使用鲸鱼功能。',409);
@@ -28,7 +29,10 @@ export function jingyuFor(root,options={}){
       }
       const companion=boundCompanion(root,account,chat,store.get('companion:'+chat));
       return withCompanionPersona(companion ? persona.slice(0,4600) : persona,companion,chat);
-    }});instances.set(key,{store,billing,audio,calls:new CallSession(store,audio,{...options,root}),platforms:new PlatformService(store,options),trips:new TripService(store)});
+    }});
+    const calls=new CallSession(store,audio,{...options,root});
+    instances.set(key,{store,billing,audio,calls,media:new WeChatMediaSession(store,audio,calls,{...options,root}),
+      platforms:new PlatformService(store,options),trips:new TripService(store)});
   }const service=instances.get(key);if(options.browser)service.platforms.browser=options.browser;return service;
 }
 export function verifiedPrivateActor(chat,actor){return validActor(actor)&&actorChat(actor)===chat?actor:'';}

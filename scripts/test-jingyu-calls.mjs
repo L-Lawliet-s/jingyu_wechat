@@ -29,6 +29,15 @@ test('unauthorized or ambiguous peers cannot be selected and duplicate listener 
 test('a previously connected incoming call can attach audio without pressing accept again',async t=>{
  const f=fixture(t);await f.calls.listen({chat:f.chat});f.setState({state:'connected',connected:true,windowPresent:true,kind:'voice'});await f.calls.poll();assert.equal(f.starts.length,1);assert.equal(f.requests.filter(row=>row.action==='accept').length,0);assert.equal(f.settings.inputDevice,4);
 });
+test('removing a contact after listening or before automatic audio attachment blocks the next action',async t=>{
+ const f=fixture(t);await f.calls.listen({chat:f.chat});f.contacts.length=0;
+ f.setState({state:'ringing',connected:false,windowPresent:true});await f.calls.poll();
+ assert.equal(f.calls.state,'unknown');assert(!f.requests.some(row=>row.action==='accept'));assert.equal(f.starts.length,0);
+ const g=fixture(t);await g.calls.listen({chat:g.chat});
+ g.setState({state:'ringing',connected:false,windowPresent:true});await g.calls.poll();
+ g.contacts.length=0;g.setState({state:'connected',connected:true,windowPresent:true});await g.calls.poll();
+ assert.equal(g.calls.state,'unknown');assert.equal(g.starts.length,0);
+});
 test('account and memory changes stop the listener before forwarding or accepting new speech',async t=>{
  const f=fixture(t);await f.calls.listen({chat:f.chat});f.revoke();f.setState({state:'ringing',connected:false,windowPresent:true});await f.calls.poll();assert.equal(f.calls.state,'unknown');assert.equal(f.starts.length,0);assert(!f.requests.some(row=>row.action==='accept'));assert.equal(f.calls.timer,null);
 });

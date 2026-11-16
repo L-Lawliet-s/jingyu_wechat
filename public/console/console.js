@@ -124,7 +124,8 @@ function updateDraftUI() {
   if($('#delete-role'))$('#delete-role').disabled=state.savingAll||roleSaves.size>0||!!state.deletingRole||state.job?.state==='running';
 }
 async function api(route, body, retry = true) {
-  const timeout = route === '/api/dinner' ? 30000 : route === '/api/browse' ? 180000 : route === '/api/fish-notebook/write' ? 45000 : 20000;
+  const timeout = route === '/api/dinner' ? 30000 : route === '/api/browse' ? 180000 :
+    ['/api/fish-notebook/write','/api/jingyu/media/prepare'].includes(route) ? 45000 : 20000;
   const response = await fetch(route, { method: body === undefined ? 'GET' : 'POST', headers: { 'X-Console-Token': state.token, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(timeout) });
   const result = await response.json();
   if (response.status === 401 && retry) {

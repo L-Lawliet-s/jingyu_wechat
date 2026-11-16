@@ -163,10 +163,15 @@ app.whenReady().then(async () => {
     await form(desk,'publish',{acceptGaps:true},'trip');
     await ready(desk,'document.body.textContent.includes("已发布方案")');
     assert.match(memberSay('查看','ui-view'),/测试展馆/);
+    await click(desk,'[data-page=jingyu]');
+    await ready(desk,'document.querySelector("#jingyu-native-media")');
+    assert(await run(desk,'document.querySelector("#jingyu-media-arm").disabled'));
+    await run(desk,`(() => {const field=document.querySelector('#jingyu-native-media [name=kind]');field.value='voice';field.dispatchEvent(new Event('change'));})()`);
+    assert(await run(desk,'!document.querySelector("[data-native-voice]").hidden'));
     await click(phone, '#dinner-unpair');
     await ready(phone, 'document.querySelector("#dinner-pair-form")');
     assert.equal(gateway.status().connected, false);
-    console.log(JSON.stringify({ desktopEntry:true, mobilePairing:true, taskShared:true, revisionSynced:true, feedbackSaved:true, mobileFits:true, cardSynced:true, lifeSynced:true, lifeSuggestion:true, commuteReplanned:true, commuteSharePrepared:true, tripDraftIsolated:true,tripPublished:true,unpairRevoked:true }));
+    console.log(JSON.stringify({ desktopEntry:true, mobilePairing:true, taskShared:true, revisionSynced:true, feedbackSaved:true, mobileFits:true, cardSynced:true, lifeSynced:true, lifeSuggestion:true, commuteReplanned:true, commuteSharePrepared:true, tripDraftIsolated:true,tripPublished:true,mediaPanelReady:true,unpairRevoked:true }));
   } finally {
     desk.destroy(); phone.destroy(); gateway.close(); dining.close();
     if (consoleServer.server.listening) {

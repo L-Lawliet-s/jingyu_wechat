@@ -34,7 +34,7 @@ export class AudioSession{
    child.once('exit',code=>{clearTimeout(timer);try{const body=JSON.parse(output);resolve(code===0?body:{available:false,error:body.error??'音频依赖未就绪。'});}catch{resolve({available:false,error:'未检测到有效音频依赖。'});}});
   });
  }
- async sample(voice={}){
+ async sample(voice={},speech='主人，小鲸鱼在这里。今天也想陪你认真做事，哼，才不是特意等你的呢。'){
   if(!voice||Object.keys(voice).some(key=>!['tts','voiceName','pitch','rate'].includes(key)))throw fault('声音试听参数无效。');
   const sampleSettings=validateAudio({...this.settings(),...voice,inputDevice:0,outputDevice:1});
   const python=this.pythonFor();if(!python)throw fault('请先一键准备语音环境。');
@@ -42,7 +42,7 @@ export class AudioSession{
   try{return await new Promise((resolve,reject)=>{
    const child=this.spawnImpl(python,[this.worker,'--sample'],{windowsHide:true,stdio:['pipe','ignore','ignore'],env:{...process.env,PYTHONUTF8:'1'}}),timer=setTimeout(()=>{child.kill();reject(fault('声音合成超时，请检查在线语音连接或切换 Windows 本地声音。',503));},35000);child.stdin.on('error',()=>{});
    child.once('error',()=>{clearTimeout(timer);reject(fault('声音组件未就绪，请重新准备语音环境。',503));});child.once('exit',code=>{clearTimeout(timer);try{const bytes=fs.readFileSync(file);if(code!==0||bytes.length>3*1024*1024||bytes.subarray(0,4).toString()!=='RIFF')throw Error();resolve({mime:'audio/wav',audio:bytes.toString('base64'),voice:this.settings().voiceName});}catch{reject(fault('声音试听未生成，请检查在线语音网络或选择本地声音。',503));}});
-   child.stdin.end(JSON.stringify({settings:sampleSettings,file,text:'主人，小鲸鱼在这里。今天也想陪你认真做事，哼，才不是特意等你的呢。'})+'\n');
+   child.stdin.end(JSON.stringify({settings:sampleSettings,file,text:speech})+'\n');
   });}finally{if(fs.existsSync(file))fs.unlinkSync(file);}
  }
  start({chat,actor,connected=false}={}){

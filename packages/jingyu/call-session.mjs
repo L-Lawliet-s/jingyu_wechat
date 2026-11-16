@@ -44,6 +44,11 @@ export class CallSession{
  save(value){if(this.timer)throw fault('请先结束当前通话。',409);if(!value||Object.keys(value).some(key=>!['inputDevice','outputDevice','routeReady','maxMinutes','videoSource'].includes(key))||!Number.isInteger(value.inputDevice)||value.inputDevice<0||!Number.isInteger(value.outputDevice)||value.outputDevice<0||typeof value.routeReady!=='boolean'||!Number.isInteger(value.maxMinutes)||value.maxMinutes<1||value.maxMinutes>15||value.videoSource!=='placeholder')throw fault('请选择两条独立音频通道、1–15 分钟时限，并确认微信设备路由。');this.store.set('callSettings',value);return this.settings();}
  status(){return {state:this.state,kind:this.kind??null,chat:this.contact?.chat??null,connected:this.state==='connected',audio:this.audio.status(),startedAt:this.startedAt??null,error:this.error??null,videoSource:'placeholder',settings:this.settings()};}
  async contacts(){return (await this.contactsFor()).map(({chat,name,ambiguous})=>({chat,name,ambiguous}));}
+ async requireCurrentContact(){
+  const target=(await this.contactsFor()).find(row=>row.chat===this.contact?.chat);
+  if(!this.accountReady()||!target||target.ambiguous||target.actor!==this.contact.actor||target.name!==this.contact.name)
+   throw fault('通话联系人的允许范围或备注已变化，AI 音频已停止。',409);
+ }
  async probe(prepare=false){if(!this.accountReady())throw fault('微信账号已切换。',409);await this.verify();return this.worker.rpc(prepare?'prepare':'probe');}
  async start({chat,kind='voice',requestId,accept=false}={}){
   if(accept!==true)throw fault('当前只接听来电，不提供主动拨号。',403);
@@ -86,13 +91,20 @@ export class CallSession{
    const result=await this.worker.rpc('poll');
    if(generation!==this.generation)return;
    if(this.watch&&this.state==='listening'&&['ringing','connected'].includes(result.state)){
+    await this.requireCurrentContact();
+    if(generation!==this.generation)return;
     this.startedAt=this.now();this.requestId=crypto.randomBytes(32).toString('hex');this.kind=result.kind??'voice';this.previousAudioSettings=this.audio.settings();const settings=this.settings();this.audio.save({...this.previousAudioSettings,inputDevice:settings.inputDevice,outputDevice:settings.outputDevice,maxMinutes:settings.maxMinutes});this.state='connecting';
     this.store.db.prepare('INSERT INTO jobs VALUES(?,?,?,?,?,?,?,?,?)').run(this.requestId,'wechat-call',this.contact.chat,this.contact.actor,JSON.stringify({kind:this.kind,incoming:true}),this.state,null,this.now(),this.now());
     await this.verify(this.contact);if(result.state==='ringing'){await this.worker.rpc('accept',{name:this.contact.name});return;}
    }
    if(result.connected===true&&result.state==='connected'){
-    if(this.state!=='connected'){this.kind=result.kind??this.kind;this.audio.start({chat:this.contact.chat,actor:this.contact.actor,connected:true});this.state='connected';this.connectedAt=this.now();this.persist();}
+    if(this.state!=='connected'){
+     await this.requireCurrentContact();if(generation!==this.generation)return;
+     this.kind=result.kind??this.kind;this.audio.start({chat:this.contact.chat,actor:this.contact.actor,connected:true});
+     this.state='connected';this.connectedAt=this.peerCheckedAt=this.now();this.persist();
+    }
     else if(['stopped','error'].includes(this.audio.status().state)){await this.hangup();return;}
+    else if(this.now()-this.peerCheckedAt>=10000){await this.requireCurrentContact();this.peerCheckedAt=this.now();}
    }else if(this.state==='connected'){this.end(result.windowPresent?'unknown':'ended');}
    else if(this.state!=='listening'&&this.now()-this.startedAt>60000){await this.hangup();}
    else{this.state=result.state==='ringing'?'ringing':this.state;}
